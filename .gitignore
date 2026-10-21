@@ -46,3 +46,10 @@ ExeFS/
 *.szs
 *.bwav
 *.bfres
+
+# Branch-private runtime and build data
+/local/
+
+# Local instructions and machine-specific audit notes
+/AGENTS.md
+/docs/LOCAL-AUDIT.zh-CN.md

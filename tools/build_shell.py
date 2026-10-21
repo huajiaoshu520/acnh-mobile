@@ -55,7 +55,7 @@ def main():
     shutil.copyfile(ios/'Resources/AppIcon.png', iconset/'icon.png')
     shutil.copyfile(tree/'config/runtime.env',gen/'dm/env.txt')
     version=json.loads((ROOT/'config/version.json').read_text())
-    metadata={'format':1,'source_id':source_id(ROOT),'build':version['build'],'version':version['version'],'modules':['main','subsdk0','sdk'],'minimum_ios':'26.0','game_content':False}
+    metadata={'format':1,'source_id':source_id(ROOT),'build':version['build'],'version':version['version'],'modules':['main','subsdk0','sdk'],'minimum_ios':'18.0','game_content':False}
     (gen/'dm/shell_info.json').write_text(json.dumps(metadata,indent=2)+'\n')
     subprocess.run(['xcodegen','generate','-q'],cwd=ios,env=e,check=True)
     with (a.work/'xcodebuild.log').open('w') as log:

@@ -15,7 +15,7 @@ Experimental native compatibility layer for Animal Crossing: New Horizons **3.0.
 
 [简体中文（完整说明）](README.zh-CN.md) · [Build](docs/BUILD.md) · [Game files](docs/GAME_FILES.md) · [Release contents](docs/DERIVED.md)
 
-Local preparation, 2026-10-22. The iOS project currently targets iOS 26+ using the Metal 3 backend. This is experimental; complete gameplay and all device configurations have not been verified.
+Local preparation, 2026-10-22. This branch is the iOS18-compat Metal 3 edition, with an iOS 18 installation minimum; this does not mean every device has been tested. This is experimental; complete gameplay and all device configurations have not been verified.
 
 Current changes include direct `.data` access, save compatibility, local mailbox support, map alpha tests, vertex position invariance, native text input, touch controls, 30 fps/720p defaults, host timezone handling and bounded iPhone haptic feedback. Phone haptic feel still needs device verification.
 
