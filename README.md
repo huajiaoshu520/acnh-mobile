@@ -1,6 +1,6 @@
 # ACNH Mobile
 
-**0.3.46 · build 48 — official Metal 4 edition, iOS 26+.**
+**0.3.47 · build 49 — official Metal 4 edition, iOS 26+.**
 
 A native compatibility runtime for Animal Crossing: New Horizons 3.0.3. The runtime and shader translation sources are based on [NXNative](https://github.com/seedds/nxnative) commit `e72a06510e6dfff4a77c49fd205a82e21cad0786`.
 
@@ -8,7 +8,7 @@ This edition uses the official Metal 4 replay path and matching shader chain. It
 
 [简体中文](README.zh-CN.md) · [Shell guide](docs/SHELL.md) · [Build guide](docs/BUILD.md)
 
-This release isolates save failures by backing transaction and reapplies Mac audio buffer sizing after output changes. It retains Duo testing layouts, grouped launcher settings, dedicated/custom controls, Photos export, text input and existing `.data` files. See [release notes](docs/RELEASE-v0.3.46.zh-CN.md).
+This release adds experimental Duo tabletop auxiliary presentation with isolated buffers, audio startup-layout recovery and locale-independent extraction. It retains shader-tool preflight and manual retry, existing controls and `.data` files. Duo device behavior still needs testing. See [release notes](docs/RELEASE-v0.3.47.zh-CN.md).
 
 ## Downloads
 
