@@ -87,6 +87,12 @@ static uint64_t g_vt_addr[31]; static uint32_t g_vt_valid;
 static uint64_t g_vbuf_resolve, g_vbuf_reuse, g_vbuf_set, g_vbuf_skip;
 static id<MTL4ArgumentTable> g_present_args;
 static id<MTLBuffer> g_present_uv[3];
+// Optional Duo mirror: its own tables/buffers keep the main crop unchanged.
+extern void *front_acnh_minimap_layer(void) __attribute__((weak_import));
+static id<MTL4ArgumentTable> g_minimap_args[3];
+static id<MTLBuffer> g_minimap_uv[3];
+static id<MTLRenderPipelineState> g_minimap_pso;
+
 static uint64_t g_present_alloc_fence[3];
 // Under g_pq_mu: per present allocator, the newest ticket its commit feedback reported done on the GPU. present_now resets an allocator only once this reaches the ticket that
 // last used it. g_pq_done is not that: every display-link callback sets it to ticket - 1 (the previous present was committed, not run) and a present that was not submitted sets
@@ -374,6 +380,10 @@ void mtl_init(void) {
         g_present_uv[i] = [g_dev newBufferWithLength:sizeof(float) * 8 options:MTLResourceStorageModeShared];
         if (!g_present_uv[i]) MDIE("failed to create present UV buffer[%d]", i);
         res_add(g_present_uv[i]);
+        g_minimap_args[i]=[g_dev newArgumentTableWithDescriptor:pad error:&ate];
+        g_minimap_uv[i]=[g_dev newBufferWithLength:sizeof(float)*8 options:MTLResourceStorageModeShared];
+        if(!g_minimap_args[i]||!g_minimap_uv[i])MDIE("minimap argument resources unavailable");
+        res_add(g_minimap_uv[i]);
     }
     g_ev = [g_dev newSharedEvent];
     g_keep = [NSMutableArray array];
@@ -8718,7 +8728,7 @@ int mtl_display_hz(void) {
 #endif
 }
 static _Atomic uint64_t g_present_stall_ns;   // For unit tests: an extra pause before each present on the present thread (simulating a drawable that stays unavailable)
-static CAMetalLayer *g_present_layer_resident;
+static CAMetalLayer *g_present_layer_resident,*g_minimap_layer_resident;
 void mtl_present_test_stall(uint64_t ns) { g_present_stall_ns = ns; }
 static void present_pipeline(MTLPixelFormat format) {
     if (!g_blit_pso || g_blit_fmt != format) {
@@ -8728,14 +8738,21 @@ static void present_pipeline(MTLPixelFormat format) {
             "vertex V vs(uint id [[vertex_id]]) { float2 uv = float2((id << 1) & 2, id & 2); V o; o.p = float4(uv * float2(2, -2) + float2(-1, 1), 0, 1); o.uv = uv; return o; }\n"
             "struct Crop { float4 rect; float4 edge; };\n"
             "fragment float4 fs(V in [[stage_in]], texture2d<float> t [[texture(0)]], sampler s [[sampler(0)]], constant Crop& c [[buffer(0)]]) { return t.sample(s, clamp(in.uv * c.rect.zw + c.rect.xy, c.edge.xy, c.edge.zw)); }\n";
+        // Prototype HUD visibility: paper-border samples, never CPU readback.
+        // Cleared black when absent; the original game HUD is left untouched.
+        const char *map_msl="fragment float4 fsmap(V in [[stage_in]], texture2d<float> t [[texture(0)]], sampler s [[sampler(0)]], constant Crop& c [[buffer(0)]]) { float2 p[4]={float2(1500.0/1920,750.0/1080),float2(1880.0/1920,750.0/1080),float2(1500.0/1920,1045.0/1080),float2(1880.0/1920,1045.0/1080)}; bool show=true; for(int i=0;i<4;i++){float3 v=t.sample(s,p[i]).rgb;show=show&&min(v.r,min(v.g,v.b))>.78&&max(v.r,max(v.g,v.b))-min(v.r,min(v.g,v.b))<.16;} return show?t.sample(s,clamp(in.uv*c.rect.zw+c.rect.xy,c.edge.xy,c.edge.zw)):float4(0,0,0,1); }";
+        NSString *combined=[@(src_msl) stringByAppendingString:@(map_msl)];
         NSError *e = nil;
-        id<MTLLibrary> lib = [g_dev newLibraryWithSource:@(src_msl) options:nil error:&e];
+        id<MTLLibrary> lib = [g_dev newLibraryWithSource:combined options:nil error:&e];
         if (!lib) MDIE("present shader compile failed %s", e.localizedDescription.UTF8String);
         MTLRenderPipelineDescriptor *pd = [MTLRenderPipelineDescriptor new];
         pd.vertexFunction = [lib newFunctionWithName:@"vs"]; pd.fragmentFunction = [lib newFunctionWithName:@"fs"];
         pd.colorAttachments[0].pixelFormat = format;
         g_blit_pso = [g_dev newRenderPipelineStateWithDescriptor:pd error:&e];
         if (!g_blit_pso) MDIE("present pipeline failed %s", e.localizedDescription.UTF8String);
+        pd.fragmentFunction=[lib newFunctionWithName:@"fsmap"];
+        g_minimap_pso=[g_dev newRenderPipelineStateWithDescriptor:pd error:&e];
+        if(!g_minimap_pso)MDIE("minimap pipeline failed %s",e.localizedDescription.UTF8String);
         g_blit_fmt = format;
         MTLSamplerDescriptor *sd = [MTLSamplerDescriptor new]; sd.minFilter = sd.magFilter = MTLSamplerMinMagFilterLinear; sd.supportArgumentBuffers = YES;
         g_blit_samp = [g_dev newSamplerStateWithDescriptor:sd];
@@ -8795,7 +8812,9 @@ static int present_encode(id<MTLCommandBuffer> cb, id<MTLTexture> src, id<MTLTex
     [en endEncoding];
     return 1;
 }
-static int present_encode_m4(id<MTL4CommandBuffer> cb, id<MTLTexture> src, id<MTLTexture> dst, const int crop[4], int uv_i) {
+static int present_encode_m4_(id<MTL4CommandBuffer> cb, id<MTLTexture> src, id<MTLTexture> dst, const int crop[4], int uv_i, int minimap) {
+    id<MTL4ArgumentTable> args=minimap?g_minimap_args[uv_i]:g_present_args;
+    id<MTLBuffer> uvbuf=minimap?g_minimap_uv[uv_i]:g_present_uv[uv_i];
     NSUInteger cx = 0, cy = 0, cw = src.width, ch = src.height;
     if (crop && (crop[2] || crop[3])) {
         if (crop[0] < 0 || crop[1] < 0 || crop[2] <= 0 || crop[3] <= 0 ||
@@ -8817,18 +8836,21 @@ static int present_encode_m4(id<MTL4CommandBuffer> cb, id<MTLTexture> src, id<MT
     id<MTL4RenderCommandEncoder> en = [cb renderCommandEncoderWithDescriptor:rp];
     if (!en) { MLOG("[RED] failed to create the M4 present render encoder"); return 0; }
     [en barrierAfterQueueStages:MTLStageAll beforeStages:MTLStageAll visibilityOptions:MTL4VisibilityOptionDevice];
-    [en setArgumentTable:g_present_args atStages:MTLRenderStageFragment];
-    [g_present_args setTexture:present_raw_src(src).gpuResourceID atIndex:0];
-    [g_present_args setSamplerState:g_blit_samp.gpuResourceID atIndex:0];
-    float *uv = g_present_uv[uv_i].contents;
+    [en setArgumentTable:args atStages:MTLRenderStageFragment];
+    [args setTexture:present_raw_src(src).gpuResourceID atIndex:0];
+    [args setSamplerState:g_blit_samp.gpuResourceID atIndex:0];
+    float *uv = uvbuf.contents;
     uv[0] = (float)cx / src.width; uv[1] = (float)cy / src.height; uv[2] = (float)cw / src.width; uv[3] = (float)ch / src.height;
     uv[4] = (cx + 0.5f) / src.width; uv[5] = (cy + 0.5f) / src.height; uv[6] = (cx + cw - 0.5f) / src.width; uv[7] = (cy + ch - 0.5f) / src.height;
     if (atomic_load_explicit(&g_origin_ll, memory_order_relaxed)) { uv[1] += uv[3]; uv[3] = -uv[3]; }   // lower-left origin: the window image is stored bottom-up
-    [g_present_args setAddress:g_present_uv[uv_i].gpuAddress atIndex:0];
-    [en setViewport:vp]; [en setRenderPipelineState:g_blit_pso];
+    [args setAddress:uvbuf.gpuAddress atIndex:0];
+    [en setViewport:vp]; [en setRenderPipelineState:minimap?g_minimap_pso:g_blit_pso];
     [en drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
     m4_end(en);
     return 1;
+}
+static int present_encode_m4(id<MTL4CommandBuffer> cb,id<MTLTexture> src,id<MTLTexture> dst,const int crop[4],int uv_i) {
+ return present_encode_m4_(cb,src,dst,crop,uv_i,0);
 }
 static double g_link_it_tin;   // Enqueue time of the frame the display-link callback is presenting (read and written only on the display-link thread)
 static int present_now(const tex_t *t, double period, uint64_t frame, uint64_t ticket, const int crop[4], id<CAMetalDrawable> supplied, double target_ts) {
@@ -8906,6 +8928,17 @@ static int present_now(const tex_t *t, double period, uint64_t frame, uint64_t t
     id<MTL4CommandBuffer> cb = g_present_cb[alloc_i];
     [cb beginCommandBufferWithAllocator:g_present_alloc4[alloc_i]];
     if (!present_encode_m4(cb, src, dr.texture, crop, alloc_i)) { [cb endCommandBuffer]; [g_q4 signalDrawable:dr]; return 0; }
+    id<CAMetalDrawable> mapDrawable=nil;
+    CAMetalLayer *mapLayer=front_acnh_minimap_layer?(__bridge CAMetalLayer *)front_acnh_minimap_layer():nil;
+    if(mapLayer&&mapLayer.drawableSize.width>0&&mapLayer.drawableSize.height>0){
+        if(g_minimap_layer_resident!=mapLayer){[g_q4 addResidencySet:mapLayer.residencySet];g_minimap_layer_resident=mapLayer;}
+        mapDrawable=[mapLayer nextDrawable];
+        if(mapDrawable){
+            [g_q4 waitForDrawable:mapDrawable];
+            int mc[4]={(int)round(src.width*1494./1920.),(int)round(src.height*744./1080.),(int)round(src.width*398./1920.),(int)round(src.height*310./1080.)};
+            present_encode_m4_(cb,src,mapDrawable.texture,mc,alloc_i,1);
+        }
+    }
     [cb endCommandBuffer];
     MTL4CommitOptions *o = [MTL4CommitOptions new];
     [o addFeedbackHandler:^(id<MTL4CommitFeedback> f) {
@@ -8931,6 +8964,7 @@ static int present_now(const tex_t *t, double period, uint64_t frame, uint64_t t
         }
     }
     [g_q4 signalDrawable:dr];
+    if(mapDrawable){[g_q4 signalDrawable:mapDrawable];[mapDrawable present];}
     g_present_alloc_fence[alloc_i] = ticket;
 #if TARGET_OS_SIMULATOR   // The iOS simulator SDK has no presentation-time callback and no minimum display duration (used only for picture acceptance, display-link ticks are not counted)
     (void)period; [dr present];

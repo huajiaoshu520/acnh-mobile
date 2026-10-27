@@ -20,7 +20,9 @@ void front_ios_boot(void);
 int front_ios_boot_ok(void);
 bool dm_show_launcher(void *view_controller, void (*done)(void));
 
-static CAMetalLayer *g_layer;
+static CAMetalLayer *g_layer,*g_minimap_layer;
+static _Atomic int g_minimap_enabled;
+void *front_acnh_minimap_layer(void) { return atomic_load(&g_minimap_enabled)?(__bridge void *)g_minimap_layer:NULL; }
 static void front_ios_power_watch(void);
 static void front_ios_audio_watch(void);
 static UILabel *front_ios_fps_label(void);
@@ -81,6 +83,7 @@ static UILabel *front_ios_fps_label(void);
 @interface DmRootVC : UIViewController
 @property (nonatomic, strong) DmGameView *game;
 @property (nonatomic, strong) UIView *pad;
+@property (nonatomic, strong) DmGameView *miniMap;
 @property (nonatomic, strong) UILabel *fps;
 @property (nonatomic,strong) UILabel *loadLabel;
 @property (nonatomic) BOOL preparing;
@@ -118,6 +121,11 @@ static void launcher_done(void) { [g_root startGame]; }
     self.pad = dm_gamepad_view(self.view.bounds);
     self.pad.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     [self.view addSubview:self.pad];
+    self.miniMap=[[DmGameView alloc] initWithFrame:CGRectZero];
+    self.miniMap.userInteractionEnabled=NO;self.miniMap.hidden=YES;
+    [self.view insertSubview:self.miniMap belowSubview:self.pad];
+    g_minimap_layer=(CAMetalLayer *)self.miniMap.layer;
+    g_minimap_layer.allowsNextDrawableTimeout=YES;
     self.fps = front_ios_fps_label();   // above the pad, which hides while a controller is connected
     if (self.fps) [self.view addSubview:self.fps];
 }
@@ -127,7 +135,14 @@ static void launcher_done(void) { [g_root startGame]; }
     CGRect previous=self.pad.frame;
     self.game.frame=acnh_game_frame(self.view);
     self.pad.frame=acnh_pad_frame(self.view);
-    self.game.separateTouch=acnh_tabletop_active(self.view);
+    BOOL tabletop=acnh_tabletop_active(self.view);
+    self.game.separateTouch=tabletop;
+    CGRect lower=self.pad.frame;
+    CGFloat mw=MIN(lower.size.width*.40,lower.size.height*.62*398./310.);
+    self.miniMap.frame=CGRectMake(CGRectGetMidX(lower)-mw/2,CGRectGetMidY(lower)-mw*310./398./2,mw,mw*310./398.);
+    self.miniMap.hidden=!tabletop;
+    [self.miniMap setNeedsLayout];[self.miniMap layoutIfNeeded];
+    atomic_store(&g_minimap_enabled,tabletop);
     if(acnh_has_hinge(self.view)&&!CGRectEqualToRect(previous,self.pad.frame)){dm_gamepad_reset();[self.game resetScreenTouches];}
     [self.game setNeedsLayout];[self.pad setNeedsLayout];
     if (self.fps) {   // the top row's free stretch: right of DmGamepad.m's L3 key (102 + 17 of its units from the safe edge), level with − / + (22 units down); u is its unit

@@ -186,3 +186,6 @@ t_present_alloc: t_present_alloc.m $(MTL_T_DEP)
 
 t_tex_layout: t_tex_layout.c ../nvn/nvn_tex.c ../nvn/nvn_tex.h
 	clang -O1 -Wall -o $@ t_tex_layout.c ../nvn/nvn_tex.c
+
+t_acnh_minimap: t_acnh_minimap.m $(MTL_T_DEP)
+	clang $(CFLAGS) -fobjc-arc -o $@ t_acnh_minimap.m $(MTL_T_SRC) $(FW)
