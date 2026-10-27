@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
-import math, pathlib, sys, unittest
-import dmsh_alpha
+import math, pathlib, sys, unittest, tempfile
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / 'games'))
+import game, types
+# Test the game-owned implementation, through the same opt-in loader as builds.
+dmsh_alpha = types.SimpleNamespace(fragment=game.shader_patch(game.load('01006F8002326000')))
 
 BASE = '''#include <metal_stdlib>
 using namespace metal;
@@ -27,6 +30,26 @@ class Alpha(unittest.TestCase):
    self.assertEqual(dmsh_alpha.fragment(s),s)
  def test_reserved_slot(self):
   with self.assertRaises(ValueError):dmsh_alpha.fragment(BASE.replace('float4 p [[position]]','constant float& p [[buffer(30)]]'))
+
+class Isolation(unittest.TestCase):
+ def test_unconfigured_game_keeps_source(self):
+  with tempfile.TemporaryDirectory() as td:
+   p=pathlib.Path(td);(p/'game.tsv').write_text('name\tUnconfigured\n')
+   self.assertEqual(game.shader_patch(game.Game(p))(BASE),BASE)
+ def test_patch_pair_required(self):
+  with tempfile.TemporaryDirectory() as td:
+   p=pathlib.Path(td);(p/'game.tsv').write_text('shader_patch\tpatch.py\n');(p/'patch.py').write_text('')
+   with self.assertRaises(ValueError):game.shader_patch(game.Game(p))
+ def test_no_path_escape(self):
+  with tempfile.TemporaryDirectory() as td:
+   p=pathlib.Path(td);(p/'game.tsv').write_text('shader_patch\t../patch.py\n')
+   with self.assertRaises(ValueError):game.shader_patch(game.Game(p))
+ def test_patch_source_invalidates_profile_digest(self):
+  import dmsh_chain
+  with tempfile.TemporaryDirectory() as td:
+   p=pathlib.Path(td);(p/'game.tsv').write_text('shader_patch\tpatch.py\n');f=p/'patch.py';f.write_text('one')
+   g=game.Game(p);before=dmsh_chain.profile_rows(g);f.write_text('two')
+   self.assertNotEqual(before,dmsh_chain.profile_rows(g))
 
 if __name__=='__main__':
  if len(sys.argv)>1 and sys.argv[1]=='--fixture':

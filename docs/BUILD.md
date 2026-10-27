@@ -36,7 +36,7 @@ v0.3.15 uses chain `665e6ad0479d`. Generated `c1_full.tsv` and `cb_extent.tsv` a
 
 ### v0.3.16 Mac development mode
 
-The one chain header is `dm/gfx/nvn/dmsh_chain.h` (currently `fa64eaf62c3e`). A full shader build creates `inputs.tsv` and both matching tables. Rebuild older caches; never copy an old stamp to new outputs.
+The one chain header is `dm/gfx/nvn/dmsh_chain.h` (currently `e90503c2d6f2`). A full shader build creates `inputs.tsv` and both matching tables. Rebuild older caches; never copy an old stamp to new outputs.
 
 `./setup.sh mac --patched <prepared> --romfs <RomFS> --shaders <Mac-cache-parent> --font <ttf> --work <work>` builds the Mac host and writes `<work>/run-mac.command`; add `--run` to launch it. Saves stay under `<work>/run/save`. Raw preparation is available with `python3 tools/one_click.py ipa --platform mac --game-dir <NSP-directory> --keys <prod.keys>`. Mac mode creates no IPA, iOS project or Data package; the default remains iOS.
 

@@ -46,6 +46,35 @@ class Game:
         return [tuple(w.split('=', 1)) for w in self.words(key)]
 
 
+def patch_file(g, key, suffix):
+    """A trusted source file owned by this profile; no patch is the default."""
+    name = g.get(key, '')
+    if not name: return None
+    if Path(name).name != name or not name.endswith(suffix):
+        raise ValueError(f'{g.id}: {key} must name a {suffix} file in its profile')
+    path = g.table(name)
+    if not path.is_file(): raise ValueError(f'{g.id}: missing {key}: {path}')
+    return path
+
+
+def validate_patches(g):
+    shader = patch_file(g, 'shader_patch', '.py')
+    replay = patch_file(g, 'nvn_draw_patch', '.h')
+    if bool(shader) != bool(replay):
+        raise ValueError(f'{g.id}: shader_patch and nvn_draw_patch must be configured together')
+
+
+def shader_patch(g):
+    """Opt-in source transformation. Other games return their source unchanged."""
+    import importlib.util
+    validate_patches(g)
+    path = patch_file(g, 'shader_patch', '.py')
+    if path is None: return lambda src: src
+    spec = importlib.util.spec_from_file_location('game_shader_patch', path)
+    module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+    return module.fragment
+
+
 def extra_dirs():   # profile folders outside the repository (DM_GAMES_DIR), searched after dm/games
     return [Path(p) for p in os.environ.get('DM_GAMES_DIR', '').split(':') if p]
 
@@ -85,6 +114,7 @@ def by_title(tid):
 
 
 def header(g):
+    validate_patches(g)
     """the host's game_profile.h: the profile constants the host uses, as macros"""
     q = lambda s: '"' + s.replace('\\', '\\\\').replace('"', '\\"') + '"'
     mods = g.words('modules')
@@ -162,6 +192,7 @@ def header(g):
          f'#define DM_GAME_PERF_BOOST {int(pm == "boost")}',
          f'#define DM_GAME_FEEDBACK_SNAP {q(" ".join(fbs))}',
          f'#define DM_GAME_ALPHA_FROM_RED {q(" ".join(afr))}',
+         *([f'#define DM_GAME_DRAW_PATCH {q(os.path.relpath(patch_file(g, "nvn_draw_patch", ".h"), HERE.parent / "gfx/nvn"))}'] if g.get('nvn_draw_patch', '') else []),
          f'#define DM_GAME_TEX_FLUSH_UPLOAD {int(tfu == "on")}',
          f'#define DM_GAME_RENDER_COND {int(rcd == "on")}',
          f'#define DM_GAME_TEX_DIRTY_UPLOAD {int(tdu == "on")}',

@@ -10,7 +10,7 @@ GAME_DIR = ../../games/$(GAME)
 GAME_H = ../../host/gen/$(GAME)/game_profile.h
 CFLAGS=-O1 -g -Wall -Wno-unused-function -I../nvn/include -I$(dir $(GAME_H))
 GFX=$(filter-out ../nvn/hle_nvn.c,$(sort $(wildcard ../nvn/*.c ../nvn/*.m ../nvn/*.S ../tex/*.c ../tex/*.m)))
-GFX_H=$(wildcard ../nvn/*.h ../nvn/*.inc ../nvn/include/*.h ../tex/*.h) $(GAME_H)
+GFX_H=$(wildcard ../nvn/*.h ../nvn/*.inc ../nvn/include/*.h ../tex/*.h) $(GAME_H) $(wildcard $(GAME_DIR)/*.h)
 .DEFAULT_GOAL := t_nvn   # the profile header rule comes first, so keep the default goal as before
 $(GAME_H):
 	$(MAKE) -C ../../host game_profile GAME=$(GAME)

@@ -56,7 +56,7 @@ v0.3.15 的链为 `665e6ad0479d`。配套表不再随源码提供；从原始游
 
 ### v0.3.16 构建链与 Mac 开发模式
 
-唯一链头移到 `dm/gfx/nvn/dmsh_chain.h`，当前链为 `fa64eaf62c3e`。完整翻译同时生成 `inputs.tsv` 和两张配套表；请不要手工移植旧标记，旧链缓存需重新生成。空壳补包也会包含该标记。
+唯一链头移到 `dm/gfx/nvn/dmsh_chain.h`，当前链为 `e90503c2d6f2`。完整翻译同时生成 `inputs.tsv` 和两张配套表；请不要手工移植旧标记，旧链缓存需重新生成。空壳补包也会包含该标记。
 
 已有改写程序、RomFS、Mac 着色器和字体时，使用原 build 参数中的 `--patched`、`--romfs`、`--shaders`、`--font`、`--work` 调用 `./setup.sh mac`，其中 shaders 为 Mac 缓存父目录；不传 output。完成后双击 work 中的 `run-mac.command`，或加 `--run` 直接启动。Mac 存档和临时文件在该 work 的 run 下，独立于手机。
 

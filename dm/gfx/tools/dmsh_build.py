@@ -9,7 +9,7 @@
 # Environment IOSOUT=dir: the same MSL also goes through dm/ios/tools/ios_metal.compile to produce an iphoneos metallib + reflection (chain_metal records the iOS compile convention)
 # Final summary: success / failure counts and the distribution of reasons; distribution of driver segment read offsets (those outside the range the replay layer can fill are listed separately)
 import ast, inspect, os, re, sys, json, struct, hashlib, shutil, subprocess, tempfile, collections, threading, concurrent.futures as cf
-import dmsh_geometry, dmsh_alpha
+import dmsh_geometry
 DM_ROOT = os.environ.get('DM_ROOT') or os.path.expanduser('~/dm-work')   # Workspace root (game files, build outputs and run artifacts are all under it)
 HOME = os.path.expanduser('~')
 dm_dir, out = sys.argv[1:3]; want = set(sys.argv[3:]); cache_root = out
@@ -95,6 +95,7 @@ def tool_fingerprint():
 
 # The profile keys that change how a shader is built (nvn_*, shader_*), as dmsh_chain.inputs takes them: part of every shader's cache key
 PROFILE_ROWS = dmsh_chain.profile_rows(GAME)
+FRAGMENT_PATCH = dmsh_chain.game_shader_patch(GAME)
 def shader_key(key, name, rec):
     """The per-shader cache key. It covers the profile's build keys and the shader's pairs; a vertex shader with pairs also takes its pixel shaders' keys (pair_keyed), since vs_pad reads their
     MSL. Before, these were only in the chain version, so a build after changing only them hit the old entries and filed them under the new version (with an empty DMSH_CAS as the workaround)"""
@@ -833,7 +834,7 @@ def finish(key, w, j, c1):
         open(msl, 'w').write(full)
     raster_src = src   # dynamic alpha is checked by replay; preserve the shader's original discard facts
     if j['stage'] == 'ps':
-        src = dmsh_alpha.fragment(src)
+        src = FRAGMENT_PATCH(src)
         open(msl, 'w').write(src)
     fu = fs_uint(src) if j['stage'] == 'ps' else None   # the integer-output entry point (see fs_uint); the analysis below uses the source with only main0
     if fu: plain = src; open(msl, 'w').write(fu)

@@ -5180,24 +5180,16 @@ static __unsafe_unretained id<MTLBuffer> g_c0_dim_buf; static size_t g_c0_dim_of
 static uint64_t g_geo_bind[5];
 static int encode_args_(id<MTLCommandEncoder> en, NvShader *sh, int nvn_stage, int metal_vertex);
 static int encode_args(id<MTLCommandEncoder> en, NvShader *sh, int nvn_stage, int metal_vertex) { AP_B; int r = encode_args_(en, sh, nvn_stage, metal_vertex); AP_E(3); return r; }
-// Fragment buffer 30 is reserved by dmsh_alpha.py. Snapshot state in the fenced frame arena;
-// never overwrite a shared constant while earlier draws can still read it. Bind before argument
-// buffer reuse (and even for shaders without descriptors), including geometry replay's raster draw.
-static uint64_t alpha_gpu(void) {
-    static uint64_t pass, gpu; static uint32_t previous[2];
-    uint32_t value[2] = {S.color.alpha_func, 0}; memcpy(&value[1], &S.alpha_ref, 4);
-    if (!gpu || pass != g_pass.serial || memcmp(value, previous, sizeof value)) {
-        id<MTLBuffer> b; size_t off = arena_alloc(sizeof value, &b);
-        memcpy((uint8_t *)b.contents + off, value, sizeof value);
-        memcpy(previous, value, sizeof value); pass = g_pass.serial; gpu = b.gpuAddress + off;
-    }
-    return gpu;
-}
+// Optional game-owned draw patch; unconfigured games retain the NX replay path.
+#ifdef DM_GAME_DRAW_PATCH
+#include DM_GAME_DRAW_PATCH
+#endif
+#ifndef DM_GAME_BIND_FRAGMENT_PATCH
+#define DM_GAME_BIND_FRAGMENT_PATCH(en, sh) ((void)0)
+#define DM_GAME_FRAGMENT_MAY_DISCARD 0
+#endif
 static int encode_args_(id<MTLCommandEncoder> en, NvShader *sh, int nvn_stage, int metal_vertex) {
-    if (nvn_stage == 1) {
-        enc_r_args((id<MTL4RenderCommandEncoder>)en, MTLRenderStageFragment, alpha_gpu(), 30);
-        if (passdump()) PD("A %llu key=%s func=%u ref=%g", g_stat_pass, sh->key, S.color.alpha_func, S.alpha_ref);
-    }
+    if (nvn_stage == 1) DM_GAME_BIND_FRAGMENT_PATCH(en, sh);
     if (!sh->ae) return 1;
     args_sync_dirty();
     if (!passdump() && !g_args_dirty[nvn_stage] && sh->ab_buf && sh->ab_pass == g_pass.serial && nvn_stage != 5 && !(sh->rf.drv_read[0] && sh->ab_binst != g_draw_binst)) {
@@ -5635,7 +5627,7 @@ static int first_draw_covers(int i, id<MTLTexture> t, NSUInteger level) {
     int n = dw ? dw->count : di->count, prim = dw ? dw->prim : di->prim;
     __unsafe_unretained NvProg *pr = S.prog ? prog_get(S.prog) : nil; if (!pr) return g_fd_why = 1, 0;
     NvShader *vs = pr->sh[0], *fs = pr->sh[1];
-    if (!vs || !fs || S.color.alpha_func != NVN_ALPHA_FUNC_ALWAYS || vs->rf.pos_attr < 0 || fs->rf.may_discard || fs->rf.writes_smask || !(fs->rf.color_mask >> i & 1)) return g_fd_why = 2, 0;
+    if (!vs || !fs || DM_GAME_FRAGMENT_MAY_DISCARD || vs->rf.pos_attr < 0 || fs->rf.may_discard || fs->rf.writes_smask || !(fs->rf.color_mask >> i & 1)) return g_fd_why = 2, 0;
     if (!t || t.sampleCount != 1 || t.textureType == MTLTextureType3D) return g_fd_why = 3, 0;
     if ((S.color.blend_en >> i & 1) || ((S.chmask.mask >> (4 * i)) & 0xf) != 0xf || S.ms.a2c || S.poly.mode != NVN_POLYGON_MODE_FILL) return g_fd_why = 4, 0;
     if (R.rt.depth && ((S.ds.dt && S.ds.df != NVN_DEPTH_FUNC_ALWAYS) || S.ds.st)) return g_fd_why = 5, 0;

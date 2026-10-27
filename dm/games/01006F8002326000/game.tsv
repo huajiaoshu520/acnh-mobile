@@ -50,3 +50,8 @@ shader_note	Animal Crossing: New Horizons shaders
 # The game wraps its clears in render conditions that skip a target nothing drew into since its last clear: without the key, four clear-only passes wiped the composite before
 # the window copy at frame 900, and every frame came out black (the island probe and the loading icon were drawn into render targets)
 render_cond	on
+
+# ---- Local map fix (opt-in; other games keep the NX path) ----
+# Shader instrumentation and matching replay state must be enabled together.
+shader_patch	map_alpha.py
+nvn_draw_patch	map_alpha.h

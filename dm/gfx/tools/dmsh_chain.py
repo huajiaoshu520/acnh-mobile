@@ -15,7 +15,7 @@
 import os, sys, hashlib, subprocess
 DM_ROOT = os.environ.get('DM_ROOT') or os.path.expanduser('~/dm-work')   # Workspace root (game files, build outputs and run artifacts are all under it)
 HERE = os.path.dirname(os.path.abspath(__file__)); GFX = os.path.dirname(HERE); HOME = os.path.expanduser('~')
-FILES = ['tools/dmsh_chain.py', 'tools/dmsh_build.py', 'tools/dmsh_fetch.py', 'tools/dmsh_vin.py', 'tools/dmsh_geometry.py', 'tools/dmsh_alpha.py', 'tools/dmsh_facts.py', 'tools/dmsh_xlate/Program.cs', 'tools/dmsh_xlate/dmsh_xlate.csproj', '../ios/tools/ios_metal.py', 'tools/dmsh_chain.lock']
+FILES = ['tools/dmsh_chain.py', 'tools/dmsh_build.py', 'tools/dmsh_fetch.py', 'tools/dmsh_vin.py', 'tools/dmsh_geometry.py', '../games/game.py', 'tools/dmsh_facts.py', 'tools/dmsh_xlate/Program.cs', 'tools/dmsh_xlate/dmsh_xlate.csproj', '../ios/tools/ios_metal.py', 'tools/dmsh_chain.lock']
 INPUT_TABLES = ['shader_facts.tsv', 'shader_map.tsv', 'shader_map.tsv.conflicts.tsv', 'shader_pairs.tsv', 'bf_want.tsv']   # in the game profile folder
 LOCK = os.path.join(HERE, 'dmsh_chain.lock'); HEADER = os.path.join(GFX, 'nvn/dmsh_chain.h')
 STAMP = 'inputs.tsv'   # in the library directory b-<V>/
@@ -37,7 +37,21 @@ def load_game():   # the current game profile (DM_GAME), only for what needs one
     return game.load()
 
 def profile_rows(g):   # the profile keys that change how a shader is built (nvn_*, shader_*)
-    return ''.join(f'{k}\t{chr(9).join(v)}\n' for k, v in g.rows if k.startswith(('nvn_', 'shader_'))).encode()
+    rows = ''.join(f'{k}\t{chr(9).join(v)}\n' for k, v in g.rows if k.startswith(('nvn_', 'shader_'))).encode()
+    import game
+    path = game.patch_file(g, 'shader_patch', '.py')
+    return rows + (b'\0shader_patch_source\0' + path.read_bytes() if path else b'')
+
+
+def game_shader_patch(g):
+    # load_game imports the shared game-profile module first.
+    import game
+    shader = game.patch_file(g, 'shader_patch', '.py')
+    replay = game.patch_file(g, 'nvn_draw_patch', '.h')
+    if bool(shader) != bool(replay):
+        raise ValueError(f'{g.id}: shader_patch and nvn_draw_patch must be configured together')
+    return game.shader_patch(g)
+
 
 def inputs(g):
     """Digest of a game profile's inputs to its shader library: the shader tables (a missing one counts as such) and the nvn_* / shader_* keys"""
