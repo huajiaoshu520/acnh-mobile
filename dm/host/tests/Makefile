@@ -6,6 +6,10 @@ GINC = $(if $(strip $(GAME)),-I../gen/$(GAME) -I../../games/$(GAME),$(error GAME
 GAME_H = ../gen/$(GAME)/game_profile.h
 run: $(B)/t_audren_open $(B)/t_hid $(B)/t_touch $(B)/t_oe $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_audio_watchdog $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pctl $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides
 	$(B)/t_audren_open
+	$(B)/t_motion
+	$(B)/t_motion_apple
+	$(B)/t_motion_pro
+	$(B)/t_motion_pro_mac
 	$(B)/t_hid
 	$(B)/t_touch
 	$(B)/t_oe 2>/dev/null
@@ -145,3 +149,16 @@ $(B)/t_audren_layout: t_audren_layout.c ../hle_audren.c ../hle.h ../dm.h $(GAME_
 audren-layout: $(B)/t_audren_layout
 	$(B)/t_audren_layout
 run: audren-layout
+
+run: $(B)/t_motion $(B)/t_motion_apple $(B)/t_motion_pro $(B)/t_motion_pro_mac
+
+$(B)/t_motion: t_motion.c ../motion_fusion.h | $(B)
+	clang -O1 -Wall -Werror -Wno-unused-function -o $@ t_motion.c -lm
+run: $(B)/t_motion_apple
+$(B)/t_motion_apple: t_motion_apple.m ../motion_apple.h ../dm_input.h | $(B)
+	clang -O1 -g -fobjc-arc -Wall -Werror -I.. -o $@ t_motion_apple.m -framework Foundation -framework GameController
+run: $(B)/t_motion_pro $(B)/t_motion_pro_mac
+$(B)/t_motion_pro: t_motion_pro.c ../motion_pro.h | $(B)
+	clang -O1 -g -Wall -Werror -fsanitize=address,undefined -o $@ t_motion_pro.c
+$(B)/t_motion_pro_mac: t_motion_pro_mac.m ../motion_pro_mac.h ../motion_pro.h ../dm_input.h | $(B)
+	clang -O1 -g -fobjc-arc -Wall -Werror -Wno-unused-function -fsanitize=address,undefined -I.. -o $@ t_motion_pro_mac.m -framework Foundation -framework GameController -framework IOKit

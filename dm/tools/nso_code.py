@@ -121,3 +121,16 @@ if __name__ == '__main__':
     blocks = data_blocks(img, text_end, Cs(CS_ARCH_ARM64, CS_MODE_ARM))
     print(f'{p}: {len(blocks)} data blocks in text, {sum(e - s for s, e in blocks)} bytes')
     for s, e in blocks: print(f'  {s:#x}..{e:#x} ({e - s} bytes)')
+
+
+def out_store(img, start, size, md):
+    """(offset, register) of the one store through a function's second argument, an out pointer (x1, copied once in the prologue: mov xB, x1 ... str xA, [xB]):
+    where the SDK's VammManager::AllocateAddressRegion hands the new region's address back (patch_nso.py "Address regions"). ValueError when that shape is not there"""
+    import re
+    ins = list(md.disasm(bytes(img[start:start + size]), start))
+    out = [i for i in ins[:16] if i.mnemonic == 'mov' and re.fullmatch(r'x\d+, x1', i.op_str)]
+    if len(out) != 1: raise ValueError('no single copy of the out pointer in the prologue')
+    xb = out[0].op_str.split(',')[0]
+    st = [i for i in ins if i.mnemonic == 'str' and re.fullmatch(rf'x\d+, \[{xb}\]', i.op_str)]
+    if len(st) != 1: raise ValueError(f'{len(st)} stores through the out pointer')
+    return st[0].address, int(st[0].op_str.split(',')[0][1:])

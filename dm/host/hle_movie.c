@@ -176,7 +176,8 @@ static void md_defer_body(void *arg) {
 // and WaitAny / SignalEvent walked into freed holders (the core_preempt approximation does not cover it: with the dispatcher busy, posting wakes nobody, and the main thread makes no SVC on the way).
 // The rewriter puts observation gates on the instruction after each "one request posted" (OBS 19 / 20 in Metroid Dread's patches.py, for this build only); here we wait for the pending count to reach zero, for at most 3 s.
 // 100 ms was too short once the Mac was saturated (an iOS shader build in parallel): the wait ran out with one request pending and WaitAny crashed right after. Waits over 50 ms are logged (the first eight)
-static void movie_ring_wait(const uint64_t *regs) {
+static void movie_ring_wait(uint64_t *regs, int param) {
+    (void)param;
     const volatile uint64_t *pending = (const volatile uint64_t *)(regs[19] + 0x370);
     uint64_t t0 = now_ns();
     while (*pending) {

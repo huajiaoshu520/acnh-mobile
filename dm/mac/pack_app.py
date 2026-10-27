@@ -8,7 +8,7 @@
 # runtime refuses without entitlements, and so the app cannot be notarized.
 # Usage: pack_app.py <out.app> --host <dmhost> --patched <dir> --romfs <dir> --msl <dir> --tables <profile dir> --font <dir> --title-id <id> --name <name> [options]
 #   Writes <out.app>.partial and swaps it in at the end (the old app stays as it was on failure); prints one line per step ("step: ...")
-import argparse, ctypes, os, plistlib, re, shutil, subprocess, sys, tempfile
+import argparse,json, ctypes, os, plistlib, re, shutil, subprocess, sys, tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -57,8 +57,19 @@ def min_os(host):   # the host's deployment target (LC_BUILD_VERSION minos): the
     return m.group(1) if m else '14.0'
 
 
-def build_launcher(out, minos):
-    run(['xcrun', 'clang', '-arch', 'arm64', f'-mmacosx-version-min={minos}', '-O2', '-Wall', '-o', out, HERE / 'launcher.c', '-framework', 'CoreFoundation'])
+def swift_sources():
+    return [HERE / n for n in ("Launcher.swift", "LauncherSettings.swift", "LauncherRow.swift")]
+
+
+def build_launcher(out, minos):   # launcher.c's main, linked by swiftc with the settings window (no Swift main: -parse-as-library)
+    clang=run(["xcrun","--sdk","macosx","--find","clang"]).strip()
+    swiftc=run(["xcrun","--sdk","macosx","--find","swiftc"]).strip()
+    sdk=run(["xcrun","--sdk","macosx","--show-sdk-path"]).strip()
+    with tempfile.TemporaryDirectory(dir=out.parent) as t:
+        obj = Path(t) / 'launcher.o'
+        run([clang, '-isysroot', sdk, '-arch', 'arm64', f'-mmacosx-version-min={minos}', '-O2', '-Wall', '-I', HERE.parent / 'host', '-c', '-o', obj, HERE / 'launcher.c'])
+        run([swiftc, '-sdk', sdk, '-target', f'arm64-apple-macos{minos}', '-O', '-swift-version', '5', '-parse-as-library', '-module-cache-path', Path(t) / 'module-cache',
+             '-o', out, *swift_sources(), obj, '-framework', 'CoreFoundation', '-framework', 'AppKit', '-framework', 'SwiftUI'])
 
 
 def make_icns(jpg, out):   # the game's icon (256x256 JPEG) at every size an .icns holds
@@ -70,12 +81,26 @@ def make_icns(jpg, out):   # the game's icon (256x256 JPEG) at every size an .ic
         run(['iconutil', '-c', 'icns', s, '-o', out])
 
 
+def settings_rules(listed):   # DMSettings: what the launcher accepts as each setting's saved choice (docs/frontends.md, Saved choices)
+    rules = []
+    for s in listed:
+        if s['kind'] == 'range': rules.append({'env': s['env'], 'min': float(s['min']), 'max': float(s['max'])})
+        elif s['kind'] == 'choice': rules.append({'env': s['env'], 'values': [o[0] for o in s['options']]})
+        elif s['kind'] == 'toggle': rules.append({'env': s['env'], 'values': [s.get('on', '1'), s.get('off', '0')]})
+    return rules
+
+
 def info_plist(a, minos, icon):
     p = {'CFBundleName': a.name, 'CFBundleDisplayName': a.name, 'CFBundleIdentifier': a.bundle_id or f'org.nxnative.{a.title_id.lower()}',
          'CFBundleVersion': a.version or '1.0', 'CFBundleShortVersionString': a.version or '1.0', 'CFBundlePackageType': 'APPL', 'CFBundleExecutable': EXE,
          'CFBundleInfoDictionaryVersion': '6.0', 'LSMinimumSystemVersion': minos, 'LSArchitecturePriority': ['arm64'], 'NSHighResolutionCapable': True,
          'LSApplicationCategoryType': a.category or 'public.app-category.games', 'DMTitleID': a.title_id.upper(), 'DMRomfsMarker': a.marker or '', 'DMLanguage': a.lang or 'en-US'}
     if icon: p['CFBundleIconFile'] = 'AppIcon'
+    if getattr(a,"settings",None):
+        listed=json.loads(Path(a.settings).read_text())["settings"]
+        p["DMSettings"]=settings_rules(listed)
+        language=next((r["default"] for r in listed if r["env"]=="DM_LANG"),None)
+        if language:p["DMLanguage"]=language
     return p
 
 
@@ -117,6 +142,7 @@ def pack(a):
     if tables: copy(tables, dm, False)
     fonts = sorted(Path(a.font).glob('*.ttf'))
     if fonts: copy(fonts, dm / 'font', False)
+    if getattr(a,"settings",None): shutil.copyfile(a.settings, dm / "launcher.json")
     if a.env_file: shutil.copyfile(a.env_file, dm / 'env.txt')
     step('shader libraries'); (res / 'msl').mkdir(); copy([msl], res / 'msl' / (a.msl_name or msl.name), clone)
     if aoc: step('add-on content'); copy([aoc], res / 'aoc', clone)
@@ -150,6 +176,7 @@ def parse(argv):
     ap.add_argument('--env-file', help='environment switches baked in (Resources/dm/env.txt)')
     ap.add_argument('--title-id', required=True); ap.add_argument('--name', required=True)
     ap.add_argument('--version'); ap.add_argument('--bundle-id'); ap.add_argument('--category'); ap.add_argument('--lang'); ap.add_argument('--marker', help='the profile\'s romfs_marker')
+    ap.add_argument('--settings',help='Mac launcher settings JSON')
     ap.add_argument('--icon', help='the game icon (icon.jpg from the control data)')
     ap.add_argument('--sign', default='-', help='codesign identity (default: - = ad-hoc)')
     return ap.parse_args(argv)

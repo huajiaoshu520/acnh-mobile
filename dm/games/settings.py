@@ -38,6 +38,7 @@ def build(gid, patched, control):
 
     def shown(cond, n):
         if cond == 'always': return True
+        if cond.startswith('platform:'): return cond[9:] == os.environ.get('SETTINGS_PLATFORM','ios')
         if cond == 'languages>1': return len(langs) > 1
         if cond.startswith('fixups:'): return cond[7:] in keys
         if cond.startswith('gfxapi:'): return os.environ.get('GFXAPI', '') == cond[7:]
@@ -70,6 +71,7 @@ def build(gid, patched, control):
             if len(on_off) != 2 or not all(on_off) or on_off[0] == on_off[1]: sys.exit(f'settings.tsv:{n}: toggle values are - or <on>/<off>: {values}')
             s.update(on=on_off[0], off=on_off[1], default=on_off[0] if s['default'] == '1' else on_off[1])   # the default as the value the variable takes
         else: sys.exit(f'settings.tsv:{n}: unknown kind {kind}')
+        if os.environ.get('SETTINGS_PLATFORM')=='mac' and var in {'DM_OPMODE','DM_LANG','DM_FULLSCREEN','DM_RUMBLE'}: s['level']='basic'
         out.append(s)
     return {'game': g.id, 'settings': out}
 

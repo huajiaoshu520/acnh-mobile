@@ -8,6 +8,7 @@
 #include "dm_input.h"
 #include "front.h"
 #include "haptics_apple.h"
+#include "DmMotion.h"
 #include "AcnhTouchLogic.h"
 #include "AcnhTextDetect.h"
 #import "PadCustomization.h"
@@ -87,8 +88,8 @@ static __weak DmGamepad *g_view;
   }
   _rightKnob=acnhControlOutline(self.layer);_glyph[B_RS]=glyph(_rightKnob,B_RS);
   if(!acnh_pad_editing()){
-  [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(padsChanged) name:GCControllerDidConnectNotification object:nil];
-  [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(padsChanged) name:GCControllerDidDisconnectNotification object:nil];[self padsChanged];
+  [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(padsChanged:) name:GCControllerDidConnectNotification object:nil];
+  [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(padsChanged:) name:GCControllerDidDisconnectNotification object:nil];[self padsChanged:nil]; phone_motion_start();
   }
  }
  return self;
@@ -261,7 +262,7 @@ static __weak DmGamepad *g_view;
  extern void dm_acnh_text_cancel(void);dm_acnh_text_cancel();[self cancelTool];[_screenTouches removeAllObjects];dm_touch_set(NULL,0);[_owner removeAllObjects];_stick=nil;_camera=nil;_captureTouch=nil;[self recompute];
 }
 - (void)layoutSubviews{
- [super layoutSubviews];[CATransaction begin];[CATransaction setDisableActions:YES];
+ [super layoutSubviews]; UIWindowScene *ws=self.window.windowScene; if(ws) atomic_store(&g_iface_orient,(int)ws.effectiveGeometry.interfaceOrientation);[CATransaction begin];[CATransaction setDisableActions:YES];
  for(int b=0;b<B_N;b++)if(_key[b]){
   CGPoint c=[self buttonCenter:b];CGFloat r=[self radius:b];setPath(_key[b],circlePath(c,r));
   if(b!=B_RS&&_glyph[b])positionGlyph(_glyph[b],c,r*(b==B_A?.98:1.10));
@@ -332,12 +333,17 @@ static void read_pad(GCExtendedGamepad *g) {
     }]];
     [vc presentViewController:alert animated:YES completion:^{[alert.textFields.firstObject becomeFirstResponder];}];
 }
-- (void)padsChanged {
+- (void)padsChanged:(NSNotification *)note {
+    GCController *gone = [note.name isEqual:GCControllerDidDisconnectNotification] ? note.object : nil;
+    if (gone) { gone.extendedGamepad.valueChangedHandler=nil; dm_motion_detach(gone,0); }
+    int hasMotion=0;
     BOOL any = NO;
-    for (GCController *c in GCController.controllers) if (c.extendedGamepad) {
+    for (GCController *c in GCController.controllers) if (c != gone && c.extendedGamepad) {
+        hasMotion |= c.motion.hasRotationRate; dm_motion_attach(c,0);
         any = YES; c.extendedGamepad.valueChangedHandler = ^(GCExtendedGamepad *g, GCControllerElement *el) { (void)el; read_pad(g); };
         read_pad(c.extendedGamepad);
     }
+    if (!any || !hasMotion) dm_motion_clear(0);
     if (!any) { dm_haptics_apple_controller(0,nil); pthread_mutex_lock(&g_mu); g_pad_btn = 0; g_pad_lx = g_pad_ly = g_pad_rx = g_pad_ry = 0; pthread_mutex_unlock(&g_mu); publish(); }
     dispatch_async(dispatch_get_main_queue(), ^{ self.hidden = any; if (any) [self reset]; });
 }

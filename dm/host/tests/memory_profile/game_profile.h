@@ -10,3 +10,5 @@
 #ifndef DM_GAME_MEM_MAP_LIMIT
 #define DM_GAME_MEM_MAP_LIMIT 1
 #endif
+
+#define DM_GAME_STDALLOC_CAP UINT64_C(0)

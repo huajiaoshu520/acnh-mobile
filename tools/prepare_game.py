@@ -88,6 +88,8 @@ def prepare(game,keys,work,run,log,platform='ios'):
     xlate=repo/'dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate'
     u.PROG.stage('build official shader translator')
     u.run(['dotnet','publish',repo/'dm/gfx/tools/dmsh_xlate','-c','Release','-o',xlate.parent],logs/'translator.log',env=env);u.PROG.end()
+    dotnet=shutil.which('dotnet')
+    if dotnet:env.setdefault('DOTNET_ROOT',str(Path(dotnet).resolve().parent))
     env['XLATE']=str(xlate)
     translator_preflight(xlate,env,logs/'translator-preflight.log')
     u.PROG.stage('build extraction tool')

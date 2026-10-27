@@ -15,10 +15,10 @@ DM_RENDER_SCALE	range	0.5:1.0:0.05	1.0	fixups:RENDER_SCALE	Game	Render scale
 DM_OPMODE	choice	1=Docked,0=Handheld	DM_GAME_OPMODE	always	Game	Console mode
 DM_LANG	choice	languages	build:DM_LANG	languages>1	Game	Game language
 DM_SHOW_FPS	toggle	-	build:DM_SHOW_FPS	always	Game	Frame-rate counter
-ACNH_CONTROLLER_LAYOUT	choice	generic=Generic,acnh=Dedicated,custom=Custom	acnh	always	Controls	Controller layout
-ACNH_CUSTOM_BASE	choice	generic=Generic,acnh=Dedicated	acnh	always	Controls	Customize from
-ACNH_AUDIO_IGNORE_SILENT	toggle	-	0	always	Game	Play sound in silent mode
-DM_TOUCH_HAPTICS	toggle	-	1	always	Controls	Touch feedback
+ACNH_CONTROLLER_LAYOUT	choice	generic=Generic,acnh=Dedicated,custom=Custom	acnh	platform:ios	Controls	Controller layout
+ACNH_CUSTOM_BASE	choice	generic=Generic,acnh=Dedicated	acnh	platform:ios	Controls	Customize from
+ACNH_AUDIO_IGNORE_SILENT	toggle	-	0	platform:ios	Game	Play sound in silent mode
+DM_TOUCH_HAPTICS	toggle	-	1	platform:ios	Controls	Touch feedback
 DM_RUMBLE	toggle	-	1	always	Controls	Game rumble
 DM_RUMBLE_GAIN	range	0:3:0.1	1.0	always	Controls	Rumble strength
 DM_PRESENT_SNAP	toggle	-	DM_GAME_PRESENT_SNAP	gfxapi:nvn	Performance	Frame buffering	Up to one frame more display latency.
@@ -27,3 +27,4 @@ DM_PSO_PREBUILD	toggle	-	1	gfxapi:nvn	Performance	Pipeline prebuild	The first st
 DM_NVN_ENC_THREAD	toggle	-	1	gfxapi:nvn	Performance	Encode thread
 DM_FPS_HOLD	toggle	on/off	DM_GAME_FPS_HOLD	gfxapi:nvn	Performance	Hold frames when late	Applies when the official frame-step limiter is active.
 DM_METAL_HUD	toggle	-	0	always	Performance	Performance HUD
+DM_FULLSCREEN	choice	0=Window,1=Fullscreen	0	platform:mac	Game	Display mode

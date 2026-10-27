@@ -70,6 +70,7 @@ jobs:
           python tools/test_nsp_mac.py
           python dm/tools/tests/test_nsp_mac_app.py
           python dm/tools/tests/test_launcher_settings.py
+          python dm/tools/tests/test_address_regions.py
           python dm/tools/tests/test_patches.py
           python tools/test_shader_tables.py
           clang -Wall -Wextra -Werror dm/ios/tests/t_touch_feedback.c -o "$RUNNER_TEMP/t-touch-feedback"
@@ -88,6 +89,11 @@ jobs:
           dm/host/tests/build/t_gesture
           dm/host/tests/build/t_nro
           dm/host/tests/build/t_hid
+          make -C dm/host/tests GAME=01006F8002326000 build/t_motion build/t_motion_apple build/t_motion_pro build/t_motion_pro_mac
+          dm/host/tests/build/t_motion
+          dm/host/tests/build/t_motion_apple
+          dm/host/tests/build/t_motion_pro
+          dm/host/tests/build/t_motion_pro_mac
           dm/host/tests/build/t_audren_open
           dm/host/tests/build/t_audren_work
           make -C dm/host/tests GAME=01006F8002326000 build/t_audren_layout

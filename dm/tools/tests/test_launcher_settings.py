@@ -13,6 +13,17 @@ spec.loader.exec_module(settings)
 
 
 class LauncherSettingsTests(unittest.TestCase):
+    def test_mac_and_ios_settings_are_separate(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(settings.nacp, 'languages', return_value=['en-US']):
+            for platform in ('ios','mac'):
+                with patch.dict(os.environ, {'SETTINGS_PLATFORM':platform,'GFXAPI':'nvn'},clear=False):
+                    rows={r['env']:r for r in settings.build('01006F8002326000',tmp,'unused')['settings']}
+                    self.assertEqual('DM_FULLSCREEN' in rows,platform=='mac')
+                    self.assertEqual('ACNH_CONTROLLER_LAYOUT' in rows,platform=='ios')
+                    self.assertEqual('ACNH_AUDIO_IGNORE_SILENT' in rows,platform=='ios')
+                    self.assertEqual('DM_TOUCH_HAPTICS' in rows,platform=='ios')
+                    if platform=='mac':self.assertEqual(rows['DM_FULLSCREEN']['level'],'basic')
+
     def test_frame_buffering_by_graphics_api(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(settings.nacp, 'languages', return_value=['en-US']):
             for api, gid in [('nvn', '01006F8002326000'), ('vulkan', '01006F8002326000'), ('gl', '01006F8002326000'), ('', '01006F8002326000')]:

@@ -226,6 +226,10 @@ class Script(unittest.TestCase):
         ran, tmp = [], Path(tempfile.mkdtemp()); self.addCleanup(shutil.rmtree, tmp)
         out = tmp / 'G.app'
         def fake_run(cmd, log, env=None, cwd=None, on_line=None):
+            if Path(str(cmd[1])).name == "settings.py":
+                self.assertEqual(env["SETTINGS_PLATFORM"], "mac")
+                Path(cmd[-1]).write_text('{"settings": []}')
+                return
             ran.append([str(c) for c in cmd]); (out / 'Contents/MacOS').mkdir(parents=True); (out / 'Contents/MacOS/dmhost').write_bytes(b'x')
             on_line('step: launcher and host (clones of the game files)')
         g = types.SimpleNamespace(table=lambda n: tmp / 'profile' / n, get={'app_category': 'public.app-category.games', 'romfs_marker': 'a/b'}.get)

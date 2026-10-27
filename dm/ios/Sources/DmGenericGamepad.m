@@ -21,6 +21,7 @@
 #include "dm_input.h"
 #include "front.h"
 #include "haptics_apple.h"
+#include "DmMotion.h"
 #include "game_profile.h"
 #import "PadCustomization.h"
 #import "AdaptiveGameLayout.h"
@@ -46,7 +47,6 @@ static void publish(void) {
 // The accelerometer at 60 Hz (no gyroscope, no permission prompt): gravity is followed by a slow low-pass (about 0.8 s), and a sample whose acceleration beyond it exceeds DM_SHAKE_G
 // (1.5 G by default; Documents/env.txt overrides) is a hit. The controller is shaken until 120 ms after the last hit: a flick is one shake (the host finishes it as a whole cycle)
 // and shaking on keeps it going. Holding the phone and pressing the screen stays far below the threshold. Each detected shake is logged with its peak
-static CMMotionManager *g_motion;
 static void motion_start(void) {
     if (g_motion) return;
     g_motion = [CMMotionManager new];
@@ -157,10 +157,10 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }   
         [self applyLayout];
         if(!acnh_pad_editing()){
         NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
-        [nc addObserver:self selector:@selector(padsChanged) name:GCControllerDidConnectNotification object:nil];
-        [nc addObserver:self selector:@selector(padsChanged) name:GCControllerDidDisconnectNotification object:nil];
-        [self padsChanged];
-        motion_start();
+        [nc addObserver:self selector:@selector(padsChanged:) name:GCControllerDidConnectNotification object:nil];
+        [nc addObserver:self selector:@selector(padsChanged:) name:GCControllerDidDisconnectNotification object:nil];
+        [self padsChanged:nil];
+        motion_start(); phone_motion_start();
         }
     }
     return self;
@@ -371,6 +371,7 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
 
 - (void)layoutSubviews {
     [super layoutSubviews];
+    UIWindowScene *ws=self.window.windowScene; if(ws) atomic_store(&g_iface_orient,(int)ws.effectiveGeometry.interfaceOrientation);
     for(int i=0;i<B_N;i++)_label[i].contentsScale=acnh_view_display_scale(self);
     _swapLabel.contentsScale=acnh_view_display_scale(self);
     CGFloat u = self.u;
@@ -444,12 +445,17 @@ static void read_pad(GCExtendedGamepad *g) {
     pthread_mutex_unlock(&g_mu);
     publish();
 }
-- (void)padsChanged {
+- (void)padsChanged:(NSNotification *)note {
+    GCController *gone = [note.name isEqual:GCControllerDidDisconnectNotification] ? note.object : nil;
+    if (gone) { gone.extendedGamepad.valueChangedHandler=nil; dm_motion_detach(gone,0); }
+    int hasMotion=0;
     BOOL any = NO;
-    for (GCController *c in GCController.controllers) if (c.extendedGamepad) {
+    for (GCController *c in GCController.controllers) if (c != gone && c.extendedGamepad) {
+        hasMotion |= c.motion.hasRotationRate; dm_motion_attach(c,0);
         any = YES; c.extendedGamepad.valueChangedHandler = ^(GCExtendedGamepad *g, GCControllerElement *el) { (void)el; read_pad(g); };
         read_pad(c.extendedGamepad);
     }
+    if (!any || !hasMotion) dm_motion_clear(0);
     if (!any) { dm_haptics_apple_controller(0,nil); pthread_mutex_lock(&g_mu); g_pad_btn = 0; g_pad_lx = g_pad_ly = g_pad_rx = g_pad_ry = 0; pthread_mutex_unlock(&g_mu); publish(); }
     dispatch_async(dispatch_get_main_queue(), ^{ self->_padOff = any; self->_controls.hidden = any; [self reset]; });
 }

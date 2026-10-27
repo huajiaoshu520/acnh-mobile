@@ -3,7 +3,11 @@ import ast
 from pathlib import Path
 import re
 import unittest
-import dmsh_alpha, dmsh_fetch, dmsh_geometry
+import dmsh_fetch, dmsh_geometry
+import sys, types
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "games"))
+import game
+dmsh_alpha=types.SimpleNamespace(fragment=game.shader_patch(game.load("01006F8002326000")))
 
 HERE=Path(__file__).parent
 node=next(n for n in ast.parse((HERE/'dmsh_build.py').read_text()).body if isinstance(n,ast.FunctionDef) and n.name=='precise')
