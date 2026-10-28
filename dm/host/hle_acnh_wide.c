@@ -12,7 +12,7 @@ int acnh_wide_present_full(void){return atomic_load_explicit(&wide_present_full,
 static float fget(const void *p) { float f; memcpy(&f,p,4); return f; }
 static void fput(void *p,float f) { memcpy(p,&f,4); }
 void acnh_wide_set_aspect(float a) {
-    if (!isfinite(a) || a < 16.f/9.f || a > 2.6f) a=16.f/9.f;
+    if (!isfinite(a) || a < 1.f || a > 2.6f) a=16.f/9.f;
     uint32_t bits;memcpy(&bits,&a,4);atomic_store_explicit(&wide_bits,bits,memory_order_relaxed);
 }
 static float wanted(void) { uint32_t b=atomic_load_explicit(&wide_bits,memory_order_relaxed);return fget(&b); }
@@ -36,8 +36,15 @@ static void perspective(uint64_t *r,int param) {
     pthread_mutex_lock(&wide_lock);wide_record *c=record(persp,object);
     if(c){float a=fget((void*)(object+0xb0)),target=wanted();
         if(isfinite(a)&&(fabsf(a-16.f/9.f)<.01f || (c->valid&&a==c->assigned[0]))){
-            fput((void*)(object+0xb0),target);c->assigned[0]=target;
-            if(!c->valid)LOG("[ACNH display] perspective aspect %.4f -> %.4f; fovy %.4f unchanged",a,target,fget((void*)(object+0xa0)));
+            float fov=fget((void*)(object+0xa0));
+            if(!isfinite(fov)||fov<=.01f||fov>=3.f){pthread_mutex_unlock(&wide_lock);return;}
+            if(!c->valid||fov!=c->assigned[1])c->base[1]=fov;
+            // Narrow tablet: keep horizontal FOV and reveal more above/below.
+            // Wide phone: preserve the existing fixed vertical FOV behaviour.
+            float adjusted=target<16.f/9.f?2.f*atanf(tanf(c->base[1]*.5f)*(16.f/9.f)/target):c->base[1];
+            fput((void*)(object+0xb0),target);fput((void*)(object+0xa0),adjusted);
+            c->assigned[0]=target;c->assigned[1]=adjusted;
+            if(!c->valid)LOG("[ACNH display] perspective aspect %.4f -> %.4f; fovy %.4f -> %.4f",a,target,c->base[1],adjusted);
             c->valid=1;
         }
     }pthread_mutex_unlock(&wide_lock);

@@ -32,7 +32,8 @@ CGRect acnh_game_viewport(UIView *view) {
 }
 BOOL acnh_expanded_view_active(UIView *view) {
  CGRect b=acnh_game_viewport(view);
- return acnh_expanded_view_eligible(view.traitCollection.userInterfaceIdiom==UIUserInterfaceIdiomPhone,
+ UIUserInterfaceIdiom idiom=view.traitCollection.userInterfaceIdiom;
+ return acnh_expanded_view_eligible(idiom==UIUserInterfaceIdiomPhone?1:idiom==UIUserInterfaceIdiomPad?2:0,
      acnh_has_hinge(view),acnh_display_mode(),b.size.width,b.size.height);
 }
 

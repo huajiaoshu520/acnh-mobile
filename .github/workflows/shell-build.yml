@@ -66,6 +66,9 @@ jobs:
           "$RUNNER_TEMP/t-adaptive-layout"
           clang -Wall -Wextra -Werror dm/ios/tests/t_display_modes.c -framework CoreGraphics -o "$RUNNER_TEMP/t-display-modes"
           "$RUNNER_TEMP/t-display-modes"
+          make -s -C dm/host GAME=01006F8002326000 game_profile
+          clang -O1 -Wall -Wno-unused-function -Idm/host -Idm/host/gen/01006F8002326000 dm/host/tests/t_acnh_display.c -framework Foundation -lpthread -o "$RUNNER_TEMP/t-acnh-display"
+          "$RUNNER_TEMP/t-acnh-display"
           clang -fobjc-arc dm/ios/tests/t_save_file_coordinator.m dm/ios/Sources/SaveFileCoordinator.m -framework Foundation -o "$RUNNER_TEMP/t-save-coordinator"
           "$RUNNER_TEMP/t-save-coordinator"
           python tools/test_launcher.py

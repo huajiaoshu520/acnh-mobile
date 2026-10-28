@@ -29,6 +29,25 @@ static NSString *L(NSString *en,NSString *zh){return [NSLocale.preferredLanguage
 @implementation PadLayoutEditor {
  UIView<ACNHEditablePad> *_pad;NSMutableArray<UIButton *> *_handles;NSString *_selected;UILabel *_title;UISlider *_size;UIButton *_choose;UIView *_panel;CGPoint _panelOffset;
 }
+// The editor is a full-screen modal, so it must declare its own directions;
+// it does not inherit the landscape launcher's orientation policy.
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations{
+ return acnh_has_hinge(self.view)?UIInterfaceOrientationMaskAllButUpsideDown:UIInterfaceOrientationMaskLandscape;
+}
+- (UIInterfaceOrientation)preferredInterfaceOrientationForPresentation{
+ UIInterfaceOrientation current=self.presentingViewController.view.window.windowScene.interfaceOrientation;
+ if(acnh_has_hinge(self.presentingViewController.view)&&current!=UIInterfaceOrientationUnknown)return current;
+ return UIInterfaceOrientationIsLandscape(current)?current:UIInterfaceOrientationLandscapeRight;
+}
+- (BOOL)shouldAutorotate{return YES;}
+- (void)viewDidAppear:(BOOL)animated{
+ [super viewDidAppear:animated];[self setNeedsUpdateOfSupportedInterfaceOrientations];
+ UIWindowScene *scene=self.view.window.windowScene;
+ if(UIDevice.currentDevice.userInterfaceIdiom==UIUserInterfaceIdiomPhone&&!acnh_has_hinge(self.view)&&scene&&!UIInterfaceOrientationIsLandscape(scene.interfaceOrientation)){
+  UIWindowSceneGeometryPreferencesIOS *geometry=[[UIWindowSceneGeometryPreferencesIOS alloc]initWithInterfaceOrientations:UIInterfaceOrientationMaskLandscape];
+  [scene requestGeometryUpdateWithPreferences:geometry errorHandler:^(NSError *error){NSLog(@"Pad editor landscape request: %@",error.localizedDescription);}];
+ }
+}
 - (void)viewDidLoad{
  [super viewDidLoad];self.view.backgroundColor=[UIColor colorWithRed:.05 green:.13 blue:.15 alpha:1];acnh_observe_display(self.view);
  editBase=self.base;draft=[NSMutableDictionary dictionary];

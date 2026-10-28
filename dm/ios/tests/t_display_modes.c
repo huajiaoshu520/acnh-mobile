@@ -37,5 +37,13 @@ int main(void) {
  assert(!acnh_expanded_view_eligible(1,0,ACNH_DISPLAY_AUTO,430,932));
  for(int m=1;m<4;m++)assert(!acnh_expanded_view_eligible(1,0,m,932,430));
  assert(!acnh_expanded_view_eligible(1,0,ACNH_DISPLAY_AUTO,NAN,430));
+
+ assert(acnh_expanded_view_eligible(2,0,ACNH_DISPLAY_AUTO,1024,768));
+ assert(acnh_expanded_view_eligible(2,0,ACNH_DISPLAY_AUTO,1180,820));
+ assert(acnh_expanded_view_eligible(2,0,ACNH_DISPLAY_AUTO,1133,744));
+ assert(!acnh_expanded_view_eligible(2,0,ACNH_DISPLAY_AUTO,768,1024));
+ assert(!acnh_expanded_view_eligible(2,1,ACNH_DISPLAY_AUTO,1024,768));
+ for(int m=1;m<4;m++)assert(!acnh_expanded_view_eligible(2,0,m,1024,768));
+ assert(!acnh_expanded_view_eligible(2,0,ACNH_DISPLAY_AUTO,INFINITY,768));
  puts("display modes: fit/fill/stretch, clipped edges, rotation, Duo origins and inverse touch mapping passed");
 }

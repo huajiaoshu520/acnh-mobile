@@ -74,8 +74,9 @@ static inline int acnh_tabletop_regions(CGRect safe,const CGRect *divisions,int 
 }
 
 // Keep device capability and picture mode gating in a testable pure function.
-static inline int acnh_expanded_view_eligible(int phone,int hinge,int mode,double width,double height) {
- if(!phone||hinge||mode!=ACNH_DISPLAY_AUTO||!isfinite(width)||!isfinite(height)||width<=0||height<=0)return 0;
+static inline int acnh_expanded_view_eligible(int device,int hinge,int mode,double width,double height) {
+ if((device!=1&&device!=2)||hinge||mode!=ACNH_DISPLAY_AUTO||!isfinite(width)||!isfinite(height)||width<=0||height<=0)return 0;
  double aspect=width/height;
- return aspect>16.0/9.0+.01&&aspect<=2.6;
+ if(device==1)return aspect>16.0/9.0+.01&&aspect<=2.6;
+ return aspect>=1.0&&aspect<=2.6&&fabs(aspect-16.0/9.0)>.01;
 }
