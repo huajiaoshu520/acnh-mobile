@@ -119,6 +119,21 @@ static void ui_pane(uint64_t *r,int param) {
     pthread_mutex_unlock(&ui_mutex);return;
    }
   }
+  // Catalog / Nook Miles / ABD decorate their top and bottom with
+  // screen-wide P_pict bands (320/430/500 high) under N_InOut groups.
+  // Widen the background meshes only; do not stretch menu contents.
+  acnh_ui_record *band=ui_record(p,0);
+  float band_width=band&&band->valid&&w==band->last_width?band->width:w;
+  int terminal_band=!strncmp(name,"P_pict_",7)&&strlen(name)==9&&
+   name[7]>='0'&&name[7]<='9'&&name[8]>='0'&&name[8]<='9'&&
+   !strncmp((const char*)(parent+0xb0),"N_InOut_",8)&&
+   fabsf(band_width-1920.f)<.01f&&
+   (fabsf(h-320.f)<.01f||fabsf(h-430.f)<.01f||fabsf(h-500.f)<.01f);
+  if(terminal_band){
+   acnh_ui_record *c=band?band:ui_record(p,ex>1.001f);
+   if(c){c->width=band_width;c->last_width=band_width*ex;ui_write(p,0x50,c->last_width);c->valid=1;}
+   pthread_mutex_unlock(&ui_mutex);return;
+  }
   // Full-screen backgrounds get the inverse compensation, so the game image is never squeezed again.
   // Small map/phone/item panes are deliberately excluded.
   int cover=w>=root->width*.9f&&h>=H*.9f&&w<root->width*1.4f&&h<H*1.4f&&fabsf(w/h-16.f/9.f)<.06f;
