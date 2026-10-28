@@ -292,6 +292,11 @@ def pfs0_names(path):   # NSP = PFS0: list the file names inside
     return [strs[o:strs.index(b'\0', o)].decode(errors='replace') for o in (struct.unpack_from('<I', ent, i * 0x18 + 0x10)[0] for i in range(n))]
 
 
+def is_package(path):   # Validate an NSP/XCI header before trusting a filename's title ID.
+    with open(path, 'rb') as f: h = f.read(0x104)
+    return h[:4] == b'PFS0' or h[0x100:] == b'HEAD'
+
+
 def title_of(path):   # the ticket name (the first 16 digits of the rights ID = title ID), else [title ID] in the file name
     for n in pfs0_names(path):   # the ticket first: a file name's tag can be wrong (FFT's base NSP is tagged …0001, its ticket is …0000)
         if re.match(r'[0-9A-Fa-f]{32}\.tik$', n): return int(n[:16], 16)
@@ -311,6 +316,8 @@ def scan_nsps(nsp_dir):
         if p.name.startswith('._'): continue   # AppleDouble metadata is not a game archive.
         if p.stat().st_size == 0:   # an empty file left by an incomplete download (the Zelda BotW folder holds a 0-byte DLC NSP next to the complete (1).nsp)
             say(f'skipping an empty file: {p.name}'); continue
+        if not is_package(p):
+            say(f'skipping {p.name}: neither an NSP (PFS0) nor an XCI (HEAD at 0x100)'); continue
         tid = title_of(p)
         if tid is None: unknown.append(p); continue
         low = tid & 0xFFF   # base …000, update …800, DLC = base + 0x1000 + index

@@ -56,6 +56,8 @@ jobs:
           python tools/test_shell.py
           python tools/test_rewritten_display.py
           python tools/test_nsp_external_drive.py
+          make -C dm/host/tests GAME=01006F8002326000 build/t_language
+          dm/host/tests/build/t_language
           python tools/test_one_click.py
           python tools/test_prepare_game.py
           python tools/test_nro_embed.py
