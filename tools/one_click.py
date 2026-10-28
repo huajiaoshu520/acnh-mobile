@@ -49,6 +49,8 @@ def inputs(settings):
         header=(patched/(name+'.fixups.tsv')).read_text()
         match=re.search(r'^# BUILD_ID\s+(\w+)',header,re.M)
         if not match or match[1]!=expected[name]:raise ValueError('游戏程序版本不匹配：'+name)
+    from rewritten_display import validate_display_observations
+    validate_display_observations(patched)
     provenance=patched/'build_src.sha256'
     if not provenance.is_file():raise ValueError('缺少官方改写来源校验记录 build_src.sha256。')
     for line in provenance.read_text().splitlines():

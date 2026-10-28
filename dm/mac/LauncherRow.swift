@@ -12,8 +12,10 @@ struct SettingRow: View {
 
     private var locked: Bool { m.fixed.contains(s.env) }
     private var note: String {
-        guard locked else { return s.note }
-        return (s.note.isEmpty ? "" : s.note + " · ") + (m.fromLaunch.contains(s.env) ? "Set at launch" : "Set by an env file")
+        let translated = LauncherText.note(env: s.env, fallback: s.note)
+        guard locked else { return translated }
+        let source = m.fromLaunch.contains(s.env) ? LauncherText.text("Set at launch", "由启动参数设置") : LauncherText.text("Set by an env file", "由配置文件设置")
+        return (translated.isEmpty ? "" : translated + " · ") + source
     }
     private var rangeValue: Binding<Double> {
         Binding(get: { Double(m.values[s.env] ?? s.def) ?? s.max ?? 1 },
@@ -23,7 +25,7 @@ struct SettingRow: View {
 
     private var settingLabel: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(s.label)
+            Text(LauncherText.label(env: s.env, fallback: s.label))
             if !note.isEmpty { Text(note).font(.footnote).foregroundStyle(.secondary) }
         }
     }
@@ -33,7 +35,7 @@ struct SettingRow: View {
             switch s.kind {
             case "choice":
                 Picker(selection: m.binding(s)) {
-                    ForEach(s.options ?? [], id: \.[0]) { Text($0[1]).tag($0[0]) }
+                    ForEach(s.options ?? [], id: \.[0]) { Text(LauncherText.option(env: s.env, value: $0[0], fallback: $0[1])).tag($0[0]) }
                 } label: {
                     settingLabel
                 }
@@ -46,7 +48,7 @@ struct SettingRow: View {
                         Text(percentage).monospacedDigit().foregroundStyle(.secondary)
                     }
                     Slider(value: rangeValue, in: (s.min ?? 0)...(s.max ?? 1), step: s.step ?? 0.05)
-                        .accessibilityLabel(s.label)
+                        .accessibilityLabel(LauncherText.label(env: s.env, fallback: s.label))
                         .accessibilityValue(percentage)
                 }
             default:

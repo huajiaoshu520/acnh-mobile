@@ -16,7 +16,7 @@ def source_id(root):
     return h.hexdigest()
 
 def audit_app(app):
-    allowed = {'DmIOS', 'Info.plist', 'PkgInfo', 'dm/env.txt', 'dm/shell_info.json'}
+    allowed = {'DmIOS', 'Info.plist', 'PkgInfo', 'dm/env.txt', 'dm/shell_info.json', 'ExpandedView-LICENSE.txt'}
     actual = {str(p.relative_to(app)) for p in app.rglob('*') if p.is_file()}
     icons = {'Assets.car', 'AppIcon60x60@2x.png', 'AppIcon60x60@3x.png', 'AppIcon76x76@2x~ipad.png'}
     if not allowed <= actual or actual - allowed - icons:

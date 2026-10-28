@@ -1,3 +1,5 @@
+#include "acnh_present_math.h"
+extern int acnh_wide_present_full(void);
 // Metal execution layer of the NVN null device, see nvn_mtl.h.
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
@@ -8783,9 +8785,9 @@ static int present_encode(id<MTLCommandBuffer> cb, id<MTLTexture> src, id<MTLTex
     MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
     // Keep the game picture's aspect ratio and center it, leaving black bars in the rest (no stretching when the screen ratio differs from the game's, e.g. iPhone about 19.5:9 versus the game's 16:9);
     // when the ratio difference is < 1% (the remainder from the game width being a multiple of 8 in the full-screen setup, e.g. 1952x900 versus 2868x1320 differs by 0.17%) fill directly, leaving no few-pixel border
-    double dw = dst.width, dh = dst.height, s = fmin(dw / cw, dh / ch);
-    MTLViewport vp = {floor((dw - cw * s) / 2), floor((dh - ch * s) / 2), round(cw * s), round(ch * s), 0, 1};
-    if (fabs((dw / dh) / ((double)cw / ch) - 1) < 0.01) vp = (MTLViewport){0, 0, dw, dh, 0, 1};
+    double dw=dst.width,dh=dst.height,rect[4];
+    acnh_present_rect(dw,dh,cw,ch,acnh_wide_present_full(),rect);
+    MTLViewport vp={rect[0],rect[1],rect[2],rect[3],0,1};
     int full = vp.originX == 0 && vp.originY == 0 && vp.width == dw && vp.height == dh;
     static double last_vp[4];   // Log one line when the viewport changes (used by the real-device screen-level acceptance screen_check.py to check the aspect ratio)
     if (memcmp(last_vp, &vp, sizeof last_vp)) { memcpy(last_vp, &vp, sizeof last_vp);
@@ -8816,9 +8818,16 @@ static int present_encode_m4_(id<MTL4CommandBuffer> cb, id<MTLTexture> src, id<M
         cx = crop[0]; cy = crop[1]; cw = crop[2]; ch = crop[3];
     }
     present_pipeline(dst.pixelFormat);
-    double dw = dst.width, dh = dst.height, s = fmin(dw / cw, dh / ch);
-    MTLViewport vp = {floor((dw - cw * s) / 2), floor((dh - ch * s) / 2), round(cw * s), round(ch * s), 0, 1};
-    if (fabs((dw / dh) / ((double)cw / ch) - 1) < 0.01) vp = (MTLViewport){0, 0, dw, dh, 0, 1};
+    double dw=dst.width,dh=dst.height,rect[4];
+    int expand=!minimap&&acnh_wide_present_full();
+    acnh_present_rect(dw,dh,cw,ch,expand,rect);
+    MTLViewport vp={rect[0],rect[1],rect[2],rect[3],0,1};
+    static double previous[2][7];
+    double sample[7]={dw,dh,rect[0],rect[1],rect[2],rect[3],expand};
+    if(memcmp(previous[!!minimap],sample,sizeof sample)){
+        memcpy(previous[!!minimap],sample,sizeof sample);
+        MLOG("[ACNH display] Metal4 main=%d expand=%d viewport %.0f,%.0f %.0fx%.0f canvas %.0fx%.0f crop %lux%lu",!minimap,expand,rect[0],rect[1],rect[2],rect[3],dw,dh,(unsigned long)cw,(unsigned long)ch);
+    }
     int full = vp.originX == 0 && vp.originY == 0 && vp.width == dw && vp.height == dh;
     MTL4RenderPassDescriptor *rp = [MTL4RenderPassDescriptor new];
     rp.colorAttachments[0].texture = dst;

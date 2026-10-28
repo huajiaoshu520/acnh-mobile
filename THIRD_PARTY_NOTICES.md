@@ -7,3 +7,5 @@
 - libvpx, libdeflate and bcdec: licenses and notices retained in their respective dm/third_party directories. See those files for each component's terms.
 
 No license for Nintendo game content or keys is provided. The only artwork included is the app-identification icon at `dm/ios/Resources/AppIcon.png`; Animal Crossing artwork and trademarks belong to Nintendo and are not covered by the code MIT license. No game program or playable resources are included.
+
+- ACNH expanded-view projection/UI layout reference: [Nycolazs/ACNHRecomp](https://github.com/Nycolazs/ACNHRecomp/blob/main/runtime/src/nvn/nvn_ultrawide.cpp), MIT. Full notice: `dm/games/01006F8002326000/EXPANDED-VIEW-REFERENCE-LICENSE.txt`; also bundled as `ExpandedView-LICENSE.txt`.

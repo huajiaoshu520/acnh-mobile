@@ -16,6 +16,8 @@ targets:
       - sdk: CoreNFC.framework
       - sdk: Security.framework
     sources:
+      - path: Resources/ExpandedView-LICENSE.txt
+        buildPhase: resources
       - Sources
       - path: Gen/embed.S
       - path: Gen/dm          # Rewriter tables (*.fixups.tsv / gates / cuts / obs) + shader map / c1 list / warm-up list

@@ -1,12 +1,36 @@
 #pragma once
 #include <CoreGraphics/CoreGraphics.h>
 #include <math.h>
+#include <string.h>
 // Fit the complete game image; no anisotropic scaling or cropping.
 static inline CGRect acnh_fit_game(CGRect b) {
  if(b.size.width<=0||b.size.height<=0)return CGRectMake(b.origin.x,b.origin.y,0,0);
  CGFloat w=b.size.width,h=b.size.height;
  if(w/h>16.0/9.0)w=h*16.0/9.0;else h=w*9.0/16.0;
  return CGRectMake(b.origin.x+floor((b.size.width-w)/2),b.origin.y+floor((b.size.height-h)/2),w,h);
+}
+enum { ACNH_DISPLAY_AUTO, ACNH_DISPLAY_ORIGINAL, ACNH_DISPLAY_STRETCH, ACNH_DISPLAY_CROP };
+static inline int acnh_display_mode_value(const char *value) {
+ if(!value)return ACNH_DISPLAY_AUTO;
+ if(!strcmp(value,"original"))return ACNH_DISPLAY_ORIGINAL;
+ if(!strcmp(value,"stretch"))return ACNH_DISPLAY_STRETCH;
+ if(!strcmp(value,"crop"))return ACNH_DISPLAY_CROP;
+ return ACNH_DISPLAY_AUTO;
+}
+static inline CGRect acnh_display_frame(CGRect viewport,int mode) {
+ if(viewport.size.width<=0||viewport.size.height<=0)return CGRectMake(viewport.origin.x,viewport.origin.y,0,0);
+ if(mode==ACNH_DISPLAY_STRETCH)return viewport;
+ if(mode!=ACNH_DISPLAY_CROP)return acnh_fit_game(viewport);
+ CGFloat scale=fmax(viewport.size.width/16.,viewport.size.height/9.);
+ CGFloat w=16*scale,h=9*scale;
+ return CGRectMake(CGRectGetMidX(viewport)-w/2,CGRectGetMidY(viewport)-h/2,w,h);
+}
+// Use the displayed image's actual rectangle, including the hidden part of aspect-fill.
+static inline int acnh_game_touch(CGPoint point,CGRect image,CGPoint *normalized) {
+ if(image.size.width<=0||image.size.height<=0)return 0;
+ CGFloat x=(point.x-image.origin.x)/image.size.width,y=(point.y-image.origin.y)/image.size.height;
+ if(!isfinite(x)||!isfinite(y)||x<0||x>=1||y<0||y>=1)return 0;
+ *normalized=CGPointMake(x,y);return 1;
 }
 static inline CGPoint acnh_clamp_control(CGPoint p,CGRect safe,CGFloat r) {
  CGFloat mx=fmin(r+3,safe.size.width/2),my=fmin(r+3,safe.size.height/2);
@@ -47,4 +71,11 @@ static inline int acnh_tabletop_regions(CGRect safe,const CGRect *divisions,int 
   return 1;
  }
  return 0;
+}
+
+// Keep device capability and picture mode gating in a testable pure function.
+static inline int acnh_expanded_view_eligible(int phone,int hinge,int mode,double width,double height) {
+ if(!phone||hinge||mode!=ACNH_DISPLAY_AUTO||!isfinite(width)||!isfinite(height)||width<=0||height<=0)return 0;
+ double aspect=width/height;
+ return aspect>16.0/9.0+.01&&aspect<=2.6;
 }

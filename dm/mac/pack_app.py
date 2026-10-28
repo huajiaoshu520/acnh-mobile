@@ -58,7 +58,7 @@ def min_os(host):   # the host's deployment target (LC_BUILD_VERSION minos): the
 
 
 def swift_sources():
-    return [HERE / n for n in ("Launcher.swift", "LauncherSettings.swift", "LauncherRow.swift")]
+    return [HERE / n for n in ("Launcher.swift", "LauncherSettings.swift", "LauncherRow.swift")] + [HERE.parent / "ios/Sources/LauncherStrings.swift"]
 
 
 def build_launcher(out, minos):   # launcher.c's main, linked by swiftc with the settings window (no Swift main: -parse-as-library)

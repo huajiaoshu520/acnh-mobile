@@ -4,6 +4,7 @@
 #include "../hle.h"
 #include <assert.h>
 #include <sys/wait.h>
+#include <sys/mman.h>
 #include "../hle_audren.c"
 
 void *guest_sym(const char *name) { (void)name; return NULL; }
@@ -77,7 +78,21 @@ static void test(int sdk, int incomplete) {
     assert(capture(list, n, out) == SAMPLES);   // detection stays valid for later full frames
 }
 
+static void test_command_bounds(void) {
+    size_t page=(size_t)getpagesize();
+    uint8_t *mem=mmap(NULL,2*page,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANON,-1,0);assert(mem!=MAP_FAILED);
+    assert(mprotect(mem+page,page,PROT_NONE)==0);
+    for(int layout=0;layout<3;layout++) {
+        g_hdr6=layout==1;g_hdr21=layout==2;
+        assert(!cmd_ok(mem+page,mem+page));
+        uint8_t *q=mem+page-7;memset(q,0,7);assert(!cmd_ok(q,mem+page));
+    }
+    int16_t out[2];for(size_t n=0;n<0x20;n++)assert(capture(mem,n,out)==0);
+    munmap(mem,2*page);g_hdr6=g_hdr21=0;
+}
+
 int main(void) {
+    test_command_bounds();
     // This integration supports these sink formats; the newer SDK 4 sink extension is outside this fix.
     const int sdks[] = {6, 16, 21};
     for (size_t i = 0; i < sizeof sdks / sizeof *sdks; i++) for (int incomplete = 0; incomplete <= 1; incomplete++) {

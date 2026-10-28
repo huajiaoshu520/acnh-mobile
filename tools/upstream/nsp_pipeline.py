@@ -2,7 +2,7 @@ import shlex
 # Selected unchanged helpers from seedds/nxnative scripts/build_ipa_from_nsp.py.
 # Baseline e72a06510e6dfff4a77c49fd205a82e21cad0786; see repository LICENSE.
 # Only extraction, rewriting and the official shader pipeline are retained.
-import ast, collections, ctypes, getpass, hashlib, json, os, re, shlex, shutil, struct, subprocess, sys, tempfile, threading, time, types, zlib
+import ast, collections, ctypes, errno, getpass, hashlib, json, os, re, shlex, shutil, struct, subprocess, sys, tempfile, threading, time, types, zlib
 
 
 from pathlib import Path
@@ -259,9 +259,13 @@ def build_id(nso):
         f.seek(0x40); return f.read(16).hex()
 
 
+def _gone(func, path, exc):
+    if not (isinstance(exc, OSError) and exc.errno == errno.ENOENT): raise exc
+
+
 def rmtree(p):
     if p.is_symlink() or p.is_file(): p.unlink()
-    elif p.exists(): shutil.rmtree(p)
+    elif p.exists(): shutil.rmtree(p, onexc=_gone)
 
 
 def build_nx_extract(repo, work, logs, env):
@@ -304,6 +308,7 @@ def scan_nsps(nsp_dir):
     """Group by game: {application title ID: {'base': path, 'updates': [(version, path)], 'dlc': [(title ID, version, path)]}}"""
     fams, unknown = {}, []
     for p in sorted([*nsp_dir.glob('*.nsp'), *nsp_dir.glob('*.xci')]):   # a base game may be a cartridge dump (.xci: Monster Hunter Rise); nx_extract reads its secure partition
+        if p.name.startswith('._'): continue   # AppleDouble metadata is not a game archive.
         if p.stat().st_size == 0:   # an empty file left by an incomplete download (the Zelda BotW folder holds a 0-byte DLC NSP next to the complete (1).nsp)
             say(f'skipping an empty file: {p.name}'); continue
         tid = title_of(p)

@@ -54,6 +54,8 @@ jobs:
         run: |
           python tools/audit_release.py .
           python tools/test_shell.py
+          python tools/test_rewritten_display.py
+          python tools/test_nsp_external_drive.py
           python tools/test_one_click.py
           python tools/test_prepare_game.py
           python tools/test_nro_embed.py
@@ -62,9 +64,13 @@ jobs:
           "$RUNNER_TEMP/t-caps-pixels"
           clang -Wall -Wextra -Werror dm/ios/tests/t_adaptive_layout.c -framework CoreGraphics -o "$RUNNER_TEMP/t-adaptive-layout"
           "$RUNNER_TEMP/t-adaptive-layout"
+          clang -Wall -Wextra -Werror dm/ios/tests/t_display_modes.c -framework CoreGraphics -o "$RUNNER_TEMP/t-display-modes"
+          "$RUNNER_TEMP/t-display-modes"
           clang -fobjc-arc dm/ios/tests/t_save_file_coordinator.m dm/ios/Sources/SaveFileCoordinator.m -framework Foundation -o "$RUNNER_TEMP/t-save-coordinator"
           "$RUNNER_TEMP/t-save-coordinator"
           python tools/test_launcher.py
+          swiftc -parse-as-library dm/ios/Sources/LauncherStrings.swift dm/ios/tests/t_launcher_strings.swift -o "$RUNNER_TEMP/t-launcher-strings"
+          "$RUNNER_TEMP/t-launcher-strings"
           python tools/test_own_compilers.py
           python dm/gfx/tools/test_dmsh_alpha.py
           python dm/gfx/tools/test_upstream_shader.py

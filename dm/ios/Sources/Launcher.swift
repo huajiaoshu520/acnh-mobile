@@ -14,16 +14,10 @@ private func localized(_ english: String, _ chinese: String) -> String {
     LauncherText.text(english, chinese)
 }
 private func label(_ s: Setting) -> String {
-    let names = ["DM_PSO_MTL4": "Metal 4 管线", "DM_PSO_PREBUILD": "管线预构建", "DM_NVN_ENC_THREAD": "编码线程", "DM_FPS_HOLD": "延迟时保持帧", "DM_PRESENT_SNAP": "帧缓冲", "DM_RUMBLE": "游戏震动", "DM_RUMBLE_GAIN": "震动强度", "DM_TOUCH_HAPTICS": "触屏反馈", "ACNH_CUSTOM_BASE": "调整对象", "ACNH_AUDIO_IGNORE_SILENT": "静音模式下播放声音", "ACNH_CONTROLLER_LAYOUT": "控制器布局", "DM_FPS_TARGET": "帧率", "DM_RENDER_SCALE": "渲染比例", "DM_OPMODE": "运行模式", "DM_LANG": "游戏语言", "DM_SHOW_FPS": "显示帧率", "DM_METAL_HUD": "性能信息面板"]
-    return localized(s.label, names[s.env] ?? s.label)
+    LauncherText.label(env: s.env, fallback: s.label)
 }
 private func optionLabel(_ s: Setting, _ option: [String]) -> String {
-    if s.env == "ACNH_CONTROLLER_LAYOUT" || s.env == "ACNH_CUSTOM_BASE" { return localized(option[1], option[0] == "custom" ? "自定义" : option[0] == "generic" ? "通用" : "专属") }
-    if s.env == "DM_OPMODE" { return localized(option[1], option[0] == "1" ? "主机模式" : "掌机模式") }
-    if s.env == "DM_LANG" {
-        return Locale(identifier: Locale.preferredLanguages.first ?? "en").localizedString(forIdentifier: option[0]) ?? option[1]
-    }
-    return option[1]
+    LauncherText.option(env: s.env, value: option[0], fallback: option[1])
 }
 
 private extension LauncherModel {
@@ -57,6 +51,22 @@ private struct SettingRow: View {
     var body: some View {
         Group {
             switch s.kind {
+            case "choice" where s.env == "ACNH_DISPLAY_MODE":
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(label(s))
+                        Spacer()
+                        Picker(selection: m.binding(s)) {
+                            ForEach(s.options ?? [], id: \.[0]) { Text(optionLabel(s, $0)).tag($0[0]) }
+                        } label: {
+                            Text(label(s))
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .fixedSize(horizontal: true, vertical: false)
+                    }
+                    if !note.isEmpty { Text(note).font(.footnote).foregroundStyle(.secondary) }
+                }
             case "choice":
                 Picker(selection: m.binding(s)) {
                     ForEach(s.options ?? [], id: \.[0]) { Text(optionLabel(s, $0)).tag($0[0]) }
@@ -114,7 +124,7 @@ private struct LauncherView: View {
                 NavigationStack {
                     List {
                         ForEach(m.sections, id: \.self) { section in
-                            Section(localized(section, ["Game":"游戏", "Controls":"控制", "Performance":"性能"][section] ?? section)) {
+                            Section(LauncherText.section(section)) {
                                 ForEach(m.settings.filter { $0.sectionTitle == section && ($0.env != "ACNH_CUSTOM_BASE" || m.values["ACNH_CONTROLLER_LAYOUT"] == "custom") }) { setting in
                                     SettingRow(s: setting, m: m, edit: edit)
                                 }

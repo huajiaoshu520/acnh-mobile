@@ -1,4 +1,6 @@
-// iOS front end (the iOS implementation of front.h): a centered 16:9 Metal view (black bars on both sides) + a full-screen virtual gamepad layer (DmGamepad.m, controls drawn over the picture).
+extern void acnh_wide_set_aspect(float aspect);
+extern void acnh_wide_set_present_full(int on);
+// iOS front end: a clipped Metal picture with selectable fit/stretch/crop, plus the existing independent virtual gamepad layer.
 // The host runs on the big-stack thread started by main.m; front_run runs the guest directly on the calling thread.
 #import <UIKit/UIKit.h>
 #import "ACNHResourceGate.h"
@@ -29,6 +31,7 @@ static UILabel *front_ios_fps_label(void);
 
 @interface DmGameView : UIView
 @property(nonatomic) BOOL separateTouch;
+@property(nonatomic) BOOL stretchPicture;
 - (void)resetScreenTouches;
 @end
 @implementation DmGameView { NSMapTable<UITouch *,NSNumber *> *_screenFingers; }
@@ -76,12 +79,16 @@ static UILabel *front_ios_fps_label(void);
     CAMetalLayer *l = (CAMetalLayer *)self.layer;
     l.contentsScale = acnh_view_display_scale(self);
     CGSize pixels=CGSizeMake(self.bounds.size.width*l.contentsScale,self.bounds.size.height*l.contentsScale);
+    // Metal renders the original aspect; Core Animation scales it into the selected view.
+    if(self.stretchPicture)pixels=acnh_fit_game(CGRectMake(0,0,pixels.width,pixels.height)).size;
+    l.contentsGravity=kCAGravityResize;
     if(!CGSizeEqualToSize(l.drawableSize,pixels))l.drawableSize=pixels;
 }
 @end
 
 @interface DmRootVC : UIViewController
 @property (nonatomic, strong) DmGameView *game;
+@property (nonatomic, strong) UIView *gameContainer;
 @property (nonatomic, strong) UIView *pad;
 @property (nonatomic, strong) DmGameView *miniMap;
 @property (nonatomic, strong) UILabel *fps;
@@ -116,7 +123,9 @@ static void launcher_done(void) { [g_root startGame]; }
     dm_haptics_apple_init();
     front_ios_audio_watch();
     self.game = [[DmGameView alloc] initWithFrame:self.view.bounds];
-    [self.view addSubview:self.game];
+    self.gameContainer=[[UIView alloc] initWithFrame:self.view.bounds];
+    self.gameContainer.clipsToBounds=YES;
+    [self.view addSubview:self.gameContainer];[self.gameContainer addSubview:self.game];
     g_layer = (CAMetalLayer *)self.game.layer;
     self.pad = dm_gamepad_view(self.view.bounds);
     self.pad.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
@@ -133,7 +142,18 @@ static void launcher_done(void) { [g_root startGame]; }
     [super viewDidLayoutSubviews];
     if (!self.game) return;
     CGRect previous=self.pad.frame;
-    self.game.frame=acnh_game_frame(self.view);
+    CGRect viewport=acnh_game_viewport(self.view);
+    self.gameContainer.frame=viewport;
+    BOOL expand=acnh_expanded_view_active(self.view);
+    acnh_wide_set_aspect(expand?viewport.size.width/viewport.size.height:16.f/9.f);
+    acnh_wide_set_present_full(expand||acnh_display_mode()==ACNH_DISPLAY_STRETCH);
+    self.game.stretchPicture=NO; // Render into the native drawable; final GPU viewport controls presentation.
+    self.game.frame=CGRectOffset(acnh_game_frame(self.view),-viewport.origin.x,-viewport.origin.y);
+    static CGRect lastWideFrame;static int lastWideMode=-1;
+    if(!CGRectEqualToRect(lastWideFrame,self.game.frame)||lastWideMode!=acnh_display_mode()){
+        lastWideFrame=self.game.frame;lastWideMode=acnh_display_mode();
+        fprintf(stderr,"[ACNH display] iOS mode=%d expand=%d root=%.1fx%.1f viewport=%.1fx%.1f game=%.1f,%.1f %.1fx%.1f\n",lastWideMode,expand,self.view.bounds.size.width,self.view.bounds.size.height,viewport.size.width,viewport.size.height,self.game.frame.origin.x,self.game.frame.origin.y,self.game.frame.size.width,self.game.frame.size.height);
+    }
     self.pad.frame=acnh_pad_frame(self.view);
     BOOL tabletop=acnh_tabletop_active(self.view);
     self.game.separateTouch=tabletop;

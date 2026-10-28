@@ -270,18 +270,15 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
     if (changed || stick || _stickShown) [self refresh];   // also refresh on the stick release so the knob returns to the centre
     _stickShown = stick;
 }
-// Touches no control takes (all of them while a physical controller is connected) go to the game's touch screen, normalized on the 16:9 picture that front_ios.m
+// Touches no control takes (all of them while a physical controller is connected) go to the game's touch screen, normalized on the selected picture rectangle that front_ios.m
 // centres in the screen: Super Mario Galaxy's pointer in handheld mode (profile op_mode). The host reports them only in handheld mode, as on the Switch (hle_hid.c touch_read)
 - (void)pushGame {
     if(acnh_tabletop_active(self.superview))return; // The upper game view owns direct screen touches.
-    CGRect b = self.bounds; CGFloat w = b.size.width, h = b.size.height;
-    if (w <= 0 || h <= 0) return;
-    if (w / h > 16.0 / 9.0) w = h * 16.0 / 9.0; else h = w * 9.0 / 16.0;
-    CGFloat x0 = (b.size.width - w) / 2, y0 = (b.size.height - h) / 2;
-    dm_touch t[16]; int n = 0;
-    for (int i = 0; i < 16; i++) if (_game[i]) {
-        CGPoint p = [_game[i] locationInView:self];
-        t[n++] = (dm_touch){(uint32_t)i, (float)fmin(fmax((p.x - x0) / w, 0), 0.999), (float)fmin(fmax((p.y - y0) / h, 0), 0.999)};
+    CGRect picture=[self convertRect:acnh_game_frame(self.superview) fromView:self.superview];
+    dm_touch t[16]; int n=0;
+    for(int i=0;i<16;i++)if(_game[i]){CGPoint q;
+        if(!acnh_game_touch([_game[i] locationInView:self],picture,&q))continue;
+        t[n++]=(dm_touch){(uint32_t)i,q.x,q.y};
     }
     dm_touch_set(t, n);
 }

@@ -1,5 +1,6 @@
 #import "AdaptiveGameLayout.h"
 #import <objc/runtime.h>
+#include <stdlib.h>
 static char hingeKey,observerKey,partialKey;
 BOOL acnh_has_hinge(UIView *view) {
  return [objc_getAssociatedObject(view.window.windowScene,&hingeKey) boolValue];
@@ -21,17 +22,28 @@ static BOOL tabletop(UIView *view,CGRect *upper,CGRect *lower) {
  return NO;
 }
 BOOL acnh_tabletop_active(UIView *view) { CGRect top,bottom;return tabletop(view,&top,&bottom); }
-CGRect acnh_game_frame(UIView *view) {
+int acnh_display_mode(void) { return acnh_display_mode_value(getenv("ACNH_DISPLAY_MODE")); }
+CGRect acnh_game_viewport(UIView *view) {
  CGRect top,bottom;
- if(tabletop(view,&top,&bottom))return acnh_fit_game(top);
+ if(tabletop(view,&top,&bottom))return top;
  CGRect b=view.bounds;
  if(acnh_has_hinge(view))b=UIEdgeInsetsInsetRect(b,view.safeAreaInsets);
- return acnh_fit_game(b);
+ return b;
+}
+BOOL acnh_expanded_view_active(UIView *view) {
+ CGRect b=acnh_game_viewport(view);
+ return acnh_expanded_view_eligible(view.traitCollection.userInterfaceIdiom==UIUserInterfaceIdiomPhone,
+     acnh_has_hinge(view),acnh_display_mode(),b.size.width,b.size.height);
+}
+
+CGRect acnh_game_frame(UIView *view) {
+ if(acnh_expanded_view_active(view))return acnh_game_viewport(view);
+ return acnh_display_frame(acnh_game_viewport(view),acnh_display_mode());
 }
 CGRect acnh_pad_frame(UIView *view) {
  CGRect top,bottom;
  if(tabletop(view,&top,&bottom))return bottom;
- return acnh_has_hinge(view)?acnh_game_frame(view):view.bounds;
+ return acnh_has_hinge(view)?acnh_fit_game(acnh_game_viewport(view)):view.bounds;
 }
 void acnh_observe_display(UIView *view) {
 #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 270100

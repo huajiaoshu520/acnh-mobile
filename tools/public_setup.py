@@ -41,6 +41,8 @@ if a.cmd=='mac-app':
   pack(ROOT,a.patched,a.romfs,a.shaders,a.font,a.work,a.output,a.sign,a.env_file)
  sys.exit(0)
 a.patched=a.patched.resolve();a.romfs=a.romfs.resolve();a.shaders=a.shaders.resolve();a.font=a.font.resolve();a.work=a.work.resolve();a.output=a.output.resolve()
+from rewritten_display import validate_display_observations
+validate_display_observations(a.patched)
 from shader_tables import chain_header,ensure_tables,validate_cache
 chain=chain_header(ROOT)
 assert (a.shaders/('b-'+chain)).is_dir(),'Expected the matching complete official b-'+chain+' directory under --shaders'

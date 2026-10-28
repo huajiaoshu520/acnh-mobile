@@ -45,3 +45,7 @@ The one chain header is `dm/gfx/nvn/dmsh_chain.h` (currently `e90503c2d6f2`). A 
 `./setup.sh mac-app` packs a double-clickable Apple silicon app using the upstream launcher. Raw game input and matching prepared Mac inputs are supported. See [Mac tutorial](MAC-APP.zh-CN.md) for commands, signing, saves and logs.
 
 Duo testing releases use Xcode 27.1 / iOS 27.1 SDK (`xcode-27` on GitHub Actions) so the Duo adaptation is compiled in. The deployment target remains iOS 26.
+
+## Expanded-view prepared program
+
+The iPhone adaptive patch requires the current 3.0.3 rewrite observations. Prepared modules from older releases must be regenerated with this source. The setup and shell assembly tools reject stale observations instead of producing a stretched image. Existing RomFS `.data` volumes do not need regeneration.

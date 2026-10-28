@@ -161,16 +161,14 @@ static __weak DmGamepad *g_view;
  if(!_wheel.active){[_toolLink invalidate];_toolLink=nil;}
  _btnBits=buttons;_faceBits=0;pthread_mutex_lock(&g_mu);g_touch_btn=buttons;g_touch_lx=(int32_t)(left.x*32767);g_touch_ly=(int32_t)(left.y*32767);g_touch_rx=(int32_t)(right.x*32767);g_touch_ry=(int32_t)(right.y*32767);pthread_mutex_unlock(&g_mu);publish();[self refresh];
 }
-// Normalize inside the 16:9 game picture, excluding letterboxing; control fingers never also reach game touch.
+// Normalize inside the selected game picture, excluding letterboxing; control fingers never also reach game touch.
 - (void)publishScreenTouches {
     if(acnh_tabletop_active(self.superview))return; // The upper game view owns direct screen touches.
-    CGFloat w=self.bounds.size.width,h=self.bounds.size.height;
-    if(w/h>16.0/9.0)w=h*16.0/9.0;else h=w*9.0/16.0;
-    CGFloat ox=(self.bounds.size.width-w)/2,oy=(self.bounds.size.height-h)/2;
+    CGRect picture=[self convertRect:acnh_game_frame(self.superview) fromView:self.superview];
     dm_touch points[16];int n=0;
-    for(UITouch *t in _screenTouches){CGPoint p=[t locationInView:self];float x=(p.x-ox)/w,y=(p.y-oy)/h;
-        if(x<0||x>=1||y<0||y>=1)continue;
-        points[n++]=(dm_touch){.id=[_screenTouches objectForKey:t].unsignedIntValue,.x=x,.y=y};if(n==16)break;
+    for(UITouch *t in _screenTouches){CGPoint q;
+        if(!acnh_game_touch([t locationInView:self],picture,&q))continue;
+        points[n++]=(dm_touch){.id=[_screenTouches objectForKey:t].unsignedIntValue,.x=q.x,.y=q.y};if(n==16)break;
     }
     dm_touch_set(points,n);
 }
@@ -205,9 +203,9 @@ static __weak DmGamepad *g_view;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,200*NSEC_PER_MSEC),dispatch_get_main_queue(),^{[weakSelf probeTextKeyboard:7];});
 }
 - (BOOL)requestTextFieldAt:(CGPoint)p {
-    CGFloat w=self.bounds.size.width,h=self.bounds.size.height;
-    if(w/h>16.0/9.0)w=h*16.0/9.0;else h=w*9.0/16.0;
-    CGFloat x=(p.x-(self.bounds.size.width-w)/2)/w,y=(p.y-(self.bounds.size.height-h)/2)/h;
+    CGPoint q;CGRect picture=[self convertRect:acnh_game_frame(self.superview) fromView:self.superview];
+    if(!acnh_game_touch(p,picture,&q))return NO;
+    CGFloat x=q.x,y=q.y;
     if(x<.18||x>.82||y<.14||y>.34)return NO;
     if(_checkingTextField||_nativeTextOpen)return YES;
     [self probeTextKeyboard:0];return NO;

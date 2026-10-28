@@ -26,6 +26,8 @@ def main():
     ap.add_argument("--control",type=Path,help="Optional owned control.nacp for supported game languages")
     a=ap.parse_args(); a.output=a.output.resolve()
     if a.output.exists(): raise ValueError('Output already exists')
+    from rewritten_display import validate_display_observations
+    validate_display_observations(a.patched)
     profile=ROOT/'dm/games/01006F8002326000'
     # Check everything before creating a large temporary install package.
     from shader_tables import chain_header,ensure_tables,validate_cache

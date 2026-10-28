@@ -14,6 +14,7 @@ DM_FPS_TARGET	choice	30=30 fps,60=60 fps	DM_GAME_FPS_TARGET	DM_GAME_FPS_TARGET!=
 DM_RENDER_SCALE	range	0.5:1.0:0.05	1.0	fixups:RENDER_SCALE	Game	Render scale
 DM_OPMODE	choice	1=Docked,0=Handheld	DM_GAME_OPMODE	always	Game	Console mode
 DM_LANG	choice	languages	build:DM_LANG	languages>1	Game	Game language
+ACNH_DISPLAY_MODE	choice	auto=Adaptive,original=Original,stretch=Stretch,crop=Crop	auto	platform:ios	Game	Picture mode	Adaptive expands the view on supported wide iPhones without stretching the world or UI; iPad keeps its existing layout. Original keeps 16:9. Stretch fills the screen; Crop hides the edges.
 DM_SHOW_FPS	toggle	-	build:DM_SHOW_FPS	always	Game	Frame-rate counter
 ACNH_CONTROLLER_LAYOUT	choice	generic=Generic,acnh=Dedicated,custom=Custom	acnh	platform:ios	Controls	Controller layout
 ACNH_CUSTOM_BASE	choice	generic=Generic,acnh=Dedicated	acnh	platform:ios	Controls	Customize from
