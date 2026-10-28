@@ -86,6 +86,9 @@ jobs:
           python dm/tools/tests/test_address_regions.py
           python dm/tools/tests/test_patches.py
           python tools/test_shader_tables.py
+          make -C dm/host/tests GAME=01006F8002326000 build/t_hid
+          dm/host/tests/build/t_hid
+          make -C dm/gfx/tests GAME=01006F8002326000 check_t_capture check_t_capture_live check_t_tex_fit_root
           clang -Wall -Wextra -Werror dm/ios/tests/t_touch_feedback.c -o "$RUNNER_TEMP/t-touch-feedback"
           "$RUNNER_TEMP/t-touch-feedback"
           clang -Wall -Wextra -Werror dm/ios/tests/t_acnh_wheel.c -o "$RUNNER_TEMP/t-acnh-wheel"

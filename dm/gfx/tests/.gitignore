@@ -85,3 +85,8 @@ t_tex_layout
 /t_alpha
 
 /t_acnh_minimap
+
+nvn_replay
+t_capture
+t_capture_live
+t_tex_fit_root

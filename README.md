@@ -1,8 +1,8 @@
 # ACNH Mobile
 
-**0.3.65 · build 68 — official Metal 4 edition, iOS 26+.**
+**0.3.66 · build 69 — official Metal 4 edition, iOS 26+.**
 
-This revision fixes Chinese language-code compatibility, rejects mislabeled game archives by their headers, and corrects combined-sampler recognition in the existing optional read-only resource path. [Release notes](docs/RELEASE-v0.3.65.zh-CN.md).
+This revision fixes Chinese language-code compatibility, rejects mislabeled game archives by their headers, and corrects combined-sampler recognition in the existing optional read-only resource path. [Release notes](docs/RELEASE-v0.3.66.zh-CN.md).
 A native compatibility runtime for Animal Crossing: New Horizons 3.0.3. The runtime and shader translation sources are based on [NXNative](https://github.com/seedds/nxnative) commit `e72a06510e6dfff4a77c49fd205a82e21cad0786`.
 
 This edition uses the official Metal 4 replay path and matching shader chain. It retains ACNH's icon touch controls, tool wheel, physical controllers, R/field-triggered Chinese text input, direct external `.data` access, transactional saves, amiibo file import, Photos export and bounded haptics. Custom touch layouts can be edited from startup settings; there is no added in-game typing toolbar.

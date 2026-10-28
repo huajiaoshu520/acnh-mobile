@@ -189,3 +189,26 @@ t_tex_layout: t_tex_layout.c ../nvn/nvn_tex.c ../nvn/nvn_tex.h
 
 t_acnh_minimap: t_acnh_minimap.m $(MTL_T_DEP)
 	clang $(CFLAGS) -fobjc-arc -o $@ t_acnh_minimap.m $(MTL_T_SRC) $(FW)
+
+# DM_NVN_CAPTURE: the replayer (a tool, not a test: it needs a capture, docs/agents/05-debugging.md) and the CPU-only test of the capture format and record relocation
+nvn_replay: nvn_replay.m $(MTL_T_DEP)
+	clang $(CFLAGS) -fobjc-arc -o $@ nvn_replay.m $(filter-out ../nvn/hle_nvn.c,$(MTL_T_SRC)) $(FW)
+t_capture: t_capture.c ../nvn/nvn_capture.c ../nvn/nvn_capture.h ../nvn/nvn_obj.h
+	clang $(CFLAGS) -o $@ t_capture.c ../nvn/nvn_capture.c
+.PHONY: check_t_capture
+check_t_capture: t_capture
+	./t_capture
+run: check_t_capture
+# On the GPU: two synthetic frames through the capture hooks, the second one captured, then replayed by nvn_replay (same digest, twice)
+t_capture_live: t_capture_live.m $(MTL_T_DEP)
+	clang $(CFLAGS) -fobjc-arc -o $@ t_capture_live.m $(filter-out ../nvn/hle_nvn.c,$(MTL_T_SRC)) $(FW)
+.PHONY: check_t_capture_live
+check_t_capture_live: t_capture_live nvn_replay
+	@d=$$(mktemp -d); ./t_capture_live $$d/live.nvncap && ./nvn_replay $$d/live.nvncap --repeat 2; rc=$$?; rm -rf $$d; exit $$rc
+run: check_t_capture_live
+t_tex_fit_root: t_tex_fit_root.m $(MTL_T_DEP)
+	clang $(CFLAGS) -fobjc-arc -o $@ t_tex_fit_root.m $(MTL_T_SRC) $(FW)
+.PHONY: check_t_tex_fit_root
+check_t_tex_fit_root: t_tex_fit_root
+	MTL_DEBUG_LAYER=1 ./t_tex_fit_root
+run: check_t_tex_fit_root

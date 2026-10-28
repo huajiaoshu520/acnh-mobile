@@ -6,6 +6,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include "dm_input.h"
+#include "pad_slots.h"
+#include <stdio.h>
+#define PAD_LOG(...) do { fprintf(stderr,"[gamepad] "); fprintf(stderr,__VA_ARGS__); fputc(10,stderr); } while(0)
 #include "front.h"
 #include "haptics_apple.h"
 #include "DmMotion.h"
@@ -20,15 +23,12 @@ _Static_assert(B_UP==13 && B_A==0,"Tool-wheel input bit mapping");
 static int inputButton(int button){return button==B_L_TOP?B_L:button;}
 enum { C_NONE=0,C_STICK,C_CAMERA,C_BTN,C_TOOL,C_CAPTURE };
 static pthread_mutex_t g_mu=PTHREAD_MUTEX_INITIALIZER;
-static uint64_t g_touch_btn,g_pad_btn;
-static int32_t g_touch_lx,g_touch_ly,g_touch_rx,g_touch_ry,g_pad_lx,g_pad_ly,g_pad_rx,g_pad_ry;
-static int tilted(int32_t x,int32_t y){return (int64_t)x*x+(int64_t)y*y>4000*4000;}
+static uint64_t g_touch_btn, g_shake_btn;
+static int32_t g_touch_lx,g_touch_ly,g_touch_rx,g_touch_ry;
 static void publish(void){
  pthread_mutex_lock(&g_mu);
- int32_t lx=g_touch_lx,ly=g_touch_ly,rx=g_touch_rx,ry=g_touch_ry;
- if(tilted(g_pad_lx,g_pad_ly)){lx=g_pad_lx;ly=g_pad_ly;}
- if(tilted(g_pad_rx,g_pad_ry)){rx=g_pad_rx;ry=g_pad_ry;}
- dm_input_set(g_touch_btn|g_pad_btn,lx,ly,rx,ry);pthread_mutex_unlock(&g_mu);
+ dm_input_set(g_touch_btn|g_shake_btn,g_touch_lx,g_touch_ly,g_touch_rx,g_touch_ry);
+ pthread_mutex_unlock(&g_mu);
 }
 static CGFloat distance(CGPoint a,CGPoint b){return hypot(a.x-b.x,a.y-b.y);}
 static CGPathRef circlePath(CGPoint c,CGFloat r){return CGPathCreateWithEllipseInRect(CGRectMake(c.x-r,c.y-r,2*r,2*r),NULL);}
@@ -64,6 +64,7 @@ static void placeLabel(CATextLayer *t,CGPoint c,CGFloat size){t.fontSize=size;t.
 @interface DmGamepad:UIView<ACNHEditablePad>
 @end
 static __weak DmGamepad *g_view;
+static void pads_start(void);
 @implementation DmGamepad {
  UIImpactFeedbackGenerator *_touchFeedback;TouchFeedbackEdges _feedbackEdges;
  NSMapTable<UITouch *,NSNumber *> *_owner,*_screenTouches;
@@ -89,7 +90,7 @@ static __weak DmGamepad *g_view;
   _rightKnob=acnhControlOutline(self.layer);_glyph[B_RS]=glyph(_rightKnob,B_RS);
   if(!acnh_pad_editing()){
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(padsChanged:) name:GCControllerDidConnectNotification object:nil];
-  [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(padsChanged:) name:GCControllerDidDisconnectNotification object:nil];[self padsChanged:nil]; phone_motion_start();
+  [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(padsChanged:) name:GCControllerDidDisconnectNotification object:nil];pads_start();[self padsChanged:nil]; phone_motion_start();
   }
  }
  return self;
@@ -293,9 +294,14 @@ static __weak DmGamepad *g_view;
 }
 
 // Physical controllers ----
+static pad_slots g_slots;
+static GCController *g_held[DM_PLAYERS];   // the controller of each slot, kept alive while it holds it (the slot table keys on its pointer)
+static int g_merge;
+static uint64_t g_chat_buttons[DM_PLAYERS];
 static int32_t axis(float v) { return (int32_t)(fmaxf(-1.f, fminf(1.f, v)) * 32767); }
 static void read_pad(GCExtendedGamepad *g) {
-    dm_haptics_apple_controller(0,g.controller);
+    int p = g_merge ? 0 : pad_slot_of(&g_slots, (__bridge const void *)g.controller); if (p < 0) return;
+    dm_haptics_apple_controller(p, g.controller);
     uint64_t m = 0;
     #define K(btn, bit) if (btn.isPressed) m |= 1ull << bit
     K(g.buttonB, B_A); K(g.buttonA, B_B); K(g.buttonY, B_X); K(g.buttonX, B_Y);   // by position: right A, bottom B, top X, left Y
@@ -304,14 +310,57 @@ static void read_pad(GCExtendedGamepad *g) {
     if (g.leftThumbstickButton) K(g.leftThumbstickButton, B_LS); if (g.rightThumbstickButton) K(g.rightThumbstickButton, B_RS);
     K(g.dpad.left, B_LEFT); K(g.dpad.up, B_UP); K(g.dpad.right, B_RIGHT); K(g.dpad.down, B_DOWN);
     #undef K
-    pthread_mutex_lock(&g_mu);
-    BOOL chatPressed=(m&(1ull<<B_R))&&!(g_pad_btn&(1ull<<B_R));
-    g_pad_btn = m; g_pad_lx = axis(g.leftThumbstick.xAxis.value); g_pad_ly = axis(g.leftThumbstick.yAxis.value);
-    g_pad_rx = axis(g.rightThumbstick.xAxis.value); g_pad_ry = axis(g.rightThumbstick.yAxis.value);
-    pthread_mutex_unlock(&g_mu);
-    publish();
+    BOOL chatPressed=p==0 && (m&(1ull<<B_R)) && !(g_chat_buttons[p]&(1ull<<B_R));
+    g_chat_buttons[p]=m;
     if(chatPressed)dispatch_async(dispatch_get_main_queue(),^{[g_view requestChatText];});
+    dm_pad_set_player(p, m, axis(g.leftThumbstick.xAxis.value), axis(g.leftThumbstick.yAxis.value), axis(g.rightThumbstick.xAxis.value), axis(g.rightThumbstick.yAxis.value));
 }
+// Home and Capture: without this iOS takes them as system gestures (Home opens the Games overlay, Capture a screenshot); the app gives them no function
+static void pad_keep_system_buttons(GCController *c) { for (NSString *b in @[GCInputButtonHome, GCInputButtonShare]) c.physicalInputProfile.buttons[b].preferredSystemGestureState = GCSystemGestureStateDisabled; }
+static const char *pad_name(GCController *c) { return c.vendorName.UTF8String ?: "?"; }
+static void npad_name(int p, char *out, size_t cap) { uint32_t id = dm_player_npad(p); if (id == 0x20) snprintf(out, cap, "handheld"); else snprintf(out, cap, "%u", id); }
+static void pads_start(void) {
+    const char *e = getenv("DM_PAD_MERGE"); g_merge = e && atoi(e);
+    PAD_LOG("front end: %s", g_merge ? "every controller is player 1 (DM_PAD_MERGE)" : "each controller is a player of its own, the touch gamepad plays with player 1");
+}
+// Called at start and on every connect / disconnect (gone: the controller that was just removed, nil otherwise); returns whether a controller is in use
+static BOOL pads_merged(GCController *gone) {
+    if (gone) { gone.extendedGamepad.valueChangedHandler = nil; dm_motion_detach(gone, 0); }
+    BOOL any = NO; int motion = 0;
+    for (GCController *c in GCController.controllers) if (c != gone && c.extendedGamepad) {
+        if (c.motion.hasRotationRate) motion = 1;
+        any = YES; pad_keep_system_buttons(c); c.extendedGamepad.valueChangedHandler = ^(GCExtendedGamepad *g, GCControllerElement *el) { (void)el; read_pad(g); };
+        dm_motion_attach(c, 0);   // every controller is player 1: the last one moved drives its six-axis sensor
+        read_pad(c.extendedGamepad);
+    }
+    if (!any || !motion) dm_motion_clear(0);   // the phone's gyro (if on) takes over from its next sample
+    if (!any) { dm_haptics_apple_controller(0, nil); dm_pad_set(0, 0, 0, 0, 0); }
+    return any;
+}
+static BOOL pads_slotted(GCController *gone) {
+    NSArray<GCController *> *now = GCController.controllers; char nb[16];
+    for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p] && (g_held[p] == gone || ![now containsObject:g_held[p]])) {
+        npad_name(p, nb, sizeof nb); PAD_LOG("controller '%s' disconnected: player %d (npad %s) is free", pad_name(g_held[p]), p + 1, nb);
+        g_held[p].extendedGamepad.valueChangedHandler = nil;
+        dm_motion_detach(g_held[p], p);   // player 1's: the phone's gyro (if on) takes over from its next sample
+        dm_haptics_apple_controller(p, nil);
+        g_chat_buttons[p]=0;
+        pad_slot_free(&g_slots, (__bridge const void *)g_held[p]); g_held[p] = nil;
+        dm_pad_set_player(p, 0, 0, 0, 0, 0);   // nothing stays pressed
+    }
+    for (GCController *c in now) if (c.extendedGamepad && c != gone && pad_slot_of(&g_slots, (__bridge const void *)c) < 0) {
+        int p = pad_slot_take(&g_slots, (__bridge const void *)c, pad_name(c));
+        if (p < 0) { PAD_LOG("controller '%s' connected: all %d players are taken, not used", pad_name(c), DM_PLAYERS); continue; }
+        g_held[p] = c; pad_keep_system_buttons(c);
+        c.extendedGamepad.valueChangedHandler = ^(GCExtendedGamepad *g, GCControllerElement *el) { (void)el; read_pad(g); };
+        dm_motion_attach(c, p);
+        npad_name(p, nb, sizeof nb); PAD_LOG("controller '%s' connected: player %d (npad %s)%s", pad_name(c), p + 1, nb, c.motion.hasRotationRate ? ", with motion (gyro)" : "");
+        read_pad(c.extendedGamepad);
+    }
+    dm_pad_players(pad_slot_mask(&g_slots));
+    return pad_slot_mask(&g_slots) != 0;
+}
+
 // Submit system-keyboard text to the in-game keyboard; never auto-confirms an irreversible name.
 - (void)nativeText {
     if(_nativeTextOpen)return;_nativeTextOpen=YES;
@@ -332,25 +381,21 @@ static void read_pad(GCExtendedGamepad *g) {
     [vc presentViewController:alert animated:YES completion:^{[alert.textFields.firstObject becomeFirstResponder];}];
 }
 - (void)padsChanged:(NSNotification *)note {
-    GCController *gone = [note.name isEqual:GCControllerDidDisconnectNotification] ? note.object : nil;
-    if (gone) { gone.extendedGamepad.valueChangedHandler=nil; dm_motion_detach(gone,0); }
-    int hasMotion=0;
-    BOOL any = NO;
-    for (GCController *c in GCController.controllers) if (c != gone && c.extendedGamepad) {
-        hasMotion |= c.motion.hasRotationRate; dm_motion_attach(c,0);
-        any = YES; c.extendedGamepad.valueChangedHandler = ^(GCExtendedGamepad *g, GCControllerElement *el) { (void)el; read_pad(g); };
-        read_pad(c.extendedGamepad);
-    }
-    if (!any || !hasMotion) dm_motion_clear(0);
-    if (!any) { dm_haptics_apple_controller(0,nil); pthread_mutex_lock(&g_mu); g_pad_btn = 0; g_pad_lx = g_pad_ly = g_pad_rx = g_pad_ry = 0; pthread_mutex_unlock(&g_mu); publish(); }
-    dispatch_async(dispatch_get_main_queue(), ^{ self.hidden = any; if (any) [self reset]; });
+ GCController *gone=[note.name isEqual:GCControllerDidDisconnectNotification]?note.object:nil;
+ BOOL any=g_merge?pads_merged(gone):pads_slotted(gone);
+ dispatch_async(dispatch_get_main_queue(), ^{self.hidden = any; if(any)[self reset];});
 }
+
 @end
 
 static UIView *acnh_gamepad_view(CGRect frame) { DmGamepad *v = [[DmGamepad alloc] initWithFrame:frame]; g_view = v; return v; }
 static void acnh_gamepad_reset(void) {   // On resign active: release everything (a key held while switching away and released in background gets no "release")
     dispatch_async(dispatch_get_main_queue(), ^{ [g_view reset]; });
-    pthread_mutex_lock(&g_mu); g_pad_btn = 0; g_pad_lx = g_pad_ly = g_pad_rx = g_pad_ry = 0; pthread_mutex_unlock(&g_mu); publish();
+    pthread_mutex_lock(&g_mu); g_shake_btn=0; pthread_mutex_unlock(&g_mu); publish();
+    if(g_merge) dm_pad_set(0,0,0,0,0);
+    else for(int p=0;p<DM_PLAYERS;p++) if(g_held[p]) dm_pad_set_player(p,0,0,0,0,0);
+    memset(g_chat_buttons,0,sizeof g_chat_buttons);
+
 }
 
 // Select once, after the launcher applies its persisted settings. Only the active
