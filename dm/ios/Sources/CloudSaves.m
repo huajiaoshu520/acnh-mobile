@@ -1,6 +1,50 @@
 // See CloudSaves.h.
 
 #import "CloudSaves.h"
+#import <UIKit/UIKit.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+
+@interface DMCloudFolderPicker : NSObject <UIDocumentPickerDelegate>
+@property(nonatomic,copy) void (^completion)(NSInteger);
+@end
+static DMCloudFolderPicker *folderPicker;
+@implementation DMCloudFolderPicker
+- (void)finish:(NSInteger)result {
+    void (^done)(NSInteger) = self.completion;
+    self.completion = nil;
+    if (folderPicker == self) folderPicker = nil;
+    // UIKit owns the picker's dismissal. A second SwiftUI sheet dismissal
+    // here can dismiss the full-screen launcher underneath it as well.
+    if (done) dispatch_async(dispatch_get_main_queue(), ^{ done(result); });
+}
+- (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
+    (void)controller;
+    fprintf(stderr, "launcher: cloud folder picker returned %lu folder(s)\n", (unsigned long)urls.count);
+    [self finish:urls.count ? (dm_store_cloud_saves(urls.firstObject) ? 1 : -1) : 0];
+}
+- (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller {
+    (void)controller;
+    fprintf(stderr, "launcher: cloud folder picker cancelled\n");
+    [self finish:0];
+}
+@end
+
+void dm_choose_cloud_saves(UIViewController *presenter, void (^completion)(NSInteger)) {
+    if (!presenter.view.window || presenter.presentedViewController || folderPicker) {
+        fprintf(stderr, "launcher: cloud folder picker presentation unavailable\n");
+        if (completion) completion(-1);
+        return;
+    }
+    DMCloudFolderPicker *delegate = [DMCloudFolderPicker new];
+    delegate.completion = completion;
+    folderPicker = delegate; // UIDocumentPicker's delegate is weak.
+    UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeFolder] asCopy:NO];
+    picker.delegate = delegate;
+    picker.allowsMultipleSelection = NO;
+    picker.modalPresentationStyle = UIModalPresentationFullScreen;
+    fprintf(stderr, "launcher: presenting cloud folder picker from launcher\n");
+    [presenter presentViewController:picker animated:YES completion:nil];
+}
 
 static NSString *const kCloudSaves = @"cloudSavesBookmark";
 

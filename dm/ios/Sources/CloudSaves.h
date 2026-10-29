@@ -9,6 +9,11 @@
 // launcher asks the player to pick the folder again.
 
 #import <Foundation/Foundation.h>
+@class UIViewController;
+
+/// Present directly from the launcher, without a nested SwiftUI sheet.
+/// Completion: 1 saved, 0 cancelled, -1 failed. Does not dismiss the launcher.
+void dm_choose_cloud_saves(UIViewController *presenter, void (^completion)(NSInteger));
 
 /// The picked folder, or nil when there is none or it no longer resolves. `stale` (optional) is set
 /// when a bookmark exists but cannot be used under this signature.

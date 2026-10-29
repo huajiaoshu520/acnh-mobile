@@ -101,6 +101,7 @@ private struct SettingRow: View {
 private struct LauncherView: View {
     @ObservedObject var m: LauncherModel
     let edit: (String) -> Void
+    let chooseCloudFolder: (@escaping (Int) -> Void) -> Void
     let play: () -> Void
     @State private var memory = os_proc_available_memory()
 
@@ -130,7 +131,7 @@ private struct LauncherView: View {
                                 }
                             }
                         }
-                        CloudSavesSection()
+                        CloudSavesSection(chooseFolder: chooseCloudFolder)
                         Section {
                             Button(localized("Reset to tested defaults", "恢复默认设置")) { m.reset() }
                                 .disabled(!m.changed)
@@ -252,6 +253,9 @@ public func dmShowLauncher(_ viewController: UnsafeMutableRawPointer, _ done: @c
     let view = LauncherView(m: model, edit: { base in
         guard let h = host else { return }
         base.withCString { dmEditPadLayout(Unmanaged.passUnretained(h).toOpaque(), $0) }
+    }, chooseCloudFolder: { callback in
+        guard let h = host else { callback(-1); return }
+        dm_choose_cloud_saves(h, callback)
     }) {
         guard let h = host else { return }
         host = nil
