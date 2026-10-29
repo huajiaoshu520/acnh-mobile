@@ -20,7 +20,7 @@ FW=-framework Metal -framework Foundation -framework QuartzCore -framework Image
 MTL_T_DEP=../nvn/hle_nvn.c ../../host/crash.c ../../host/hle_bigstack.c t_host_stubs.c $(GFX) $(GFX_H)
 MTL_T_SRC=../nvn/hle_nvn.c ../../host/crash.c ../../host/hle_bigstack.c t_host_stubs.c $(filter-out ../nvn/nvn_mtl.m,$(GFX))
 t_nvn: t_nvn.c ../nvn/hle_nvn.c ../../host/crash.c ../../host/hle_bigstack.c $(GFX) $(GFX_H)
-	clang $(CFLAGS) -fobjc-arc -o $@ t_nvn.c ../../host/crash.c ../../host/hle_bigstack.c $(GFX) $(FW)
+	clang $(CFLAGS) -fobjc-arc -o $@ t_nvn.c ../../host/crash.c ../../host/hle_bigstack.c t_host_stubs.c $(GFX) $(FW)
 t_dirty_slots: t_dirty_slots.c ../nvn/nvn_dirty.c ../../host/crash.c ../nvn/nvn_dirty.h
 	clang $(CFLAGS) -o $@ t_dirty_slots.c ../../host/crash.c ../nvn/nvn_dirty.c
 t_dirty_race: t_dirty_race.c ../nvn/nvn_dirty.c ../../host/crash.c ../nvn/nvn_dirty.h
@@ -139,8 +139,6 @@ t_prog_restore: t_prog_restore.m $(MTL_T_DEP)
 t_geometry: t_geometry.m $(MTL_T_DEP)
 	clang $(CFLAGS) -fobjc-arc -o $@ t_geometry.m $(MTL_T_SRC) $(FW)
 
-t_alpha: t_alpha.m $(MTL_T_DEP)
-	clang $(CFLAGS) -fobjc-arc -o $@ t_alpha.m $(MTL_T_SRC) $(FW)
 
 t_readback: t_readback.m $(MTL_T_DEP)
 	clang $(CFLAGS) -fobjc-arc -o $@ t_readback.m $(filter-out ../nvn/hle_nvn.c,$(MTL_T_SRC)) $(FW)
@@ -218,3 +216,18 @@ t_sbw: t_sbw.m $(MTL_T_DEP)
 .PHONY: check_t_sbw
 check_t_sbw: t_sbw
 	./t_sbw
+
+t_cpu_tex: t_cpu_tex.m $(MTL_T_DEP)
+	clang $(CFLAGS) -fobjc-arc -o $@ t_cpu_tex.m $(filter-out ../nvn/hle_nvn.c,$(MTL_T_SRC)) $(FW)
+
+t_cube_placeholder: t_cube_placeholder.m $(MTL_T_DEP)
+	clang $(CFLAGS) -fobjc-arc -o $@ t_cube_placeholder.m $(MTL_T_SRC) $(FW)
+
+t_initial_uncached: t_initial_uncached.m $(MTL_T_DEP)
+	clang $(CFLAGS) -fobjc-arc -o $@ t_initial_uncached.m $(MTL_T_SRC) $(FW)
+
+t_sparse_layout: t_sparse_layout.c ../nvn/nvn_tex.c
+	clang $(CFLAGS) -o $@ t_sparse_layout.c ../nvn/nvn_tex.c
+
+t_alpha: t_alpha.m $(MTL_T_DEP)
+	clang $(CFLAGS) -fobjc-arc -o $@ t_alpha.m $(MTL_T_SRC) $(FW)

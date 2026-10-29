@@ -27,6 +27,10 @@ int main(void) {
         hex[0] = hex[0] == '0' ? '1' : '0'; assert(pso_skey_parse(hex, &b) == 0); assert(memcmp(&a, &b, sizeof a) != 0);
         assert(pso_skey_parse(hex + 1, &b) == -1); hex[0] = 'g'; assert(pso_skey_parse(hex, &b) == -1);
     }
+    pso_skey legacy = {0}, restored; char oldhex[sizeof legacy * 2 + 1];
+    legacy.k.atest = 1; pso_skey_hex(&legacy, oldhex);
+    oldhex[(sizeof legacy - sizeof legacy.k.atest - sizeof legacy.k.pad) * 2] = 0;
+    assert(pso_skey_parse(oldhex, &restored) == 0 && restored.k.atest == 0);
     puts("PSO_SKEY OK 3 cases round-trip; one changed character differs, missing digits / illegal characters rejected");
     return 0;
 }

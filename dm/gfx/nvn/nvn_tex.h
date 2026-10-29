@@ -24,3 +24,5 @@ void nvn_tex_level_tiles(const nvn_texdesc *d, unsigned level, unsigned *tileH, 
 // linear 2D texture over the same memory. One row is n texels, its byte length rounded up to align (the linear-texture row alignment); more rows are full 16384-texel rows. 0 when n or bpb is 0
 #define NVN_TBUF_ROW 16384u
 int nvn_tbuf_rows(uint64_t n, uint32_t bpb, uint32_t align, uint32_t *w, uint32_t *h, uint32_t *row);
+
+int nvn_tex_sparse_tiles(const nvn_texdesc *, uint32_t *, uint32_t *, uint32_t *);

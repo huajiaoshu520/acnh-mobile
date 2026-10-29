@@ -53,5 +53,3 @@ render_cond	on
 
 # ---- Local map fix (opt-in; other games keep the NX path) ----
 # Shader instrumentation and matching replay state must be enabled together.
-shader_patch	map_alpha.py
-nvn_draw_patch	map_alpha.h

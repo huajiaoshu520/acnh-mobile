@@ -87,6 +87,11 @@ jobs:
           python dm/tools/tests/test_patches.py
           python tools/test_shader_tables.py
           python tools/test_shader_appledouble.py
+          make -C dm/gfx/tests GAME=01006F8002326000 t_cpu_tex t_sparse_layout t_tex_layout t_pso_skey t_alpha t_readback t_initial_uncached t_cube_placeholder t_view_swizzle
+          dm/gfx/tests/t_cpu_tex
+          dm/gfx/tests/t_sparse_layout
+          dm/gfx/tests/t_tex_layout
+          dm/gfx/tests/t_pso_skey
           make -C dm/gfx/tests GAME=01006F8002326000 check_t_sbw
           make -C dm/host/tests GAME=01006F8002326000 build/t_time
           dm/host/tests/build/t_time

@@ -13,7 +13,7 @@ import dmsh_geometry
 DM_ROOT = os.environ.get('DM_ROOT') or os.path.expanduser('~/dm-work')   # Workspace root (game files, build outputs and run artifacts are all under it)
 HOME = os.path.expanduser('~')
 dm_dir, out = sys.argv[1:3]; want = set(sys.argv[3:]); cache_root = out
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import dmsh_chain, dmsh_fetch, dmsh_facts, dmsh_mtlcache, dmsh_vin   # translation chain version: verify the tools against the lock file first; build output goes into b-<V>/
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))); import dmsh_alpha, dmsh_chain, dmsh_fetch, dmsh_facts, dmsh_mtlcache, dmsh_vin   # translation chain version: verify the tools against the lock file first; build output goes into b-<V>/
 _bad = dmsh_chain.check_tools()
 if _bad: sys.exit('\n'.join('[RED] translation chain tools do not match the lock file: ' + b for b in _bad) + '\n(if the tools changed, run dmsh_chain.py --update-lock and commit the lock file; if the translator just was not rebuilt, rebuild it)')
 CHAIN = dmsh_chain.version(); out = os.path.join(out, 'b-' + CHAIN)
@@ -239,6 +239,7 @@ def fetch_finish(key, src, refl):
     return refl
 
 VIN_STATS = collections.Counter()
+ALPHA_STATS = collections.Counter()
 
 def vin_finish(key, full, refl):
     """The shadow-input library <key>_bv of a vertex shader with integer inputs (dmsh_vin.py), compiled through the MSL-keyed Metal cache; reflection 'vin' names its entry points and
@@ -267,6 +268,32 @@ def vin_finish(key, full, refl):
         except FileNotFoundError: pass
     refl['vin'] = {'entry': 'main0', 'entry_z': 'main0_z', 'shadow': shadows}
     VIN_STATS['inputs'] += len(shadows); VIN_STATS['float only'] += sum(1 for s in shadows if 'sint' not in s and 'uint' not in s)
+    return refl
+
+def alpha_finish(key, full, refl):
+    """The alpha test library <key>_ba of a pixel shader (dmsh_alpha.py), from the source with every entry point, compiled through the MSL-keyed Metal cache; reflection 'alpha'
+    names its entry points. A shader whose colour 0 has no float alpha gets none (stale libraries removed): the host draws it without the test. Changes refl; the caller writes it"""
+    if refl['stage'] != 'ps': return refl
+    libs = [os.path.join(out, key + '_ba.metallib')] + ([os.path.join(IOSOUT, key + '_ba.metallib')] if IOSOUT else [])
+    refl.pop('alpha', None)
+    def drop():
+        for p in libs:
+            try: os.unlink(p)
+            except FileNotFoundError: pass
+    v, info = dmsh_alpha.variant(full)
+    if not v: ALPHA_STATS['not generated'] += 1; drop(); return refl
+    msl = os.path.join(w, key + '_ba.metal'); open(msl, 'w').write(v)
+    try:
+        MTL.compile('mac', msl, libs[0])
+        if IOSOUT: MTL.compile('ios', msl, libs[1])
+    except subprocess.CalledProcessError as e:
+        ALPHA_STATS['failed'] += 1; print(f'[RED] {key}: the alpha test library does not compile ({str(e)[:120]}): its alpha-tested draws go without the test', flush=True)
+        drop(); return refl
+    finally:
+        try: os.unlink(msl)
+        except FileNotFoundError: pass
+    ALPHA_STATS['generated'] += 1
+    refl['alpha'] = {'entries': info}
     return refl
 
 pc_of, loc = {}, {}
@@ -860,6 +887,7 @@ def finish(key, w, j, c1):
             'vertex_inputs': [{'location': int(m.group(2)), 'msl_type': m.group(1)} for m in re.finditer(r'(\w+)\s+\w+\s*\[\[attribute\((\d+)\)\]\]', src)],
             'raster': raster_facts(j['stage'], raster_src), 'vs_pad': pad}
     if j['stage'] == 'vs': vin_finish(key, open(msl).read(), refl)   # the shadow-input library (see dmsh_vin.py), from the source with every entry point
+    if j['stage'] == 'ps': alpha_finish(key, open(msl).read(), refl)
     write_refl(key, refl)
     fetch_finish(key, src, refl)
     return 'ok', '', refl
@@ -920,7 +948,7 @@ def fin(key):
         refl = json.load(open(os.path.join(out, key + '_b.json')))
         src = open(os.path.join(out, key + '_b.metal')).read() if refl['stage'] in ('ps', 'vs') else ''
         if refl['stage'] == 'vs': write_refl(key, vin_finish(key, src, refl))
-        return key, 'ok', '', fetch_finish(key, src, refl)
+        return key, 'ok', '', fetch_finish(key, src, alpha_finish(key, src, refl))
     if key in xerr or not os.path.exists(os.path.join(w, key + '.spv')): return key, 'translation failed', xerr.get(key, 'no spv'), None
     result = (key,) + finish(key, w, jobs[key], c1s[key])
     if result[1] == 'ok': publish_cache(key, digests[key], rule_fps[key], CODE_FP)
