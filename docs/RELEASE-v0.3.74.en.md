@@ -6,7 +6,7 @@
 - Require Capstone 5 explicitly in the rewriter.
 - Correct adaptive-mode held-item positioning, item-name balloon proportions and storage action balloons covering the selected item.
 
-Preserves LAN, iPhone/iPad display modes, controllers, text input, photos, Duo test support and one-click builds. This release does not add an A16 BC texture fallback.
+Preserves LAN, iPhone/iPad display modes, controllers, text input, photos, Duo test support and one-click builds.
 
 Save-sync core regressions and complete Mac/iOS builds passed. Real iCloud Drive synchronization between an iPhone and Mac still needs device validation, as do phone rendering and LAN behavior.
 
