@@ -71,10 +71,13 @@ module_t *module_of(const void *p);
 // Gate dispatch: rewritten svc / timer reads come in through the common entry, ret_addr = the return point of that gate block, regs points to the saved x0..x30
 uint64_t gate_dispatch(uint64_t ret_addr, uint64_t *regs);
 // Observation gates (rewriter OBS tables in the profiles' patches.py, applied by patch_nso.py; numbering matches): read-only callbacks, called on a gate hit once attached
+#ifndef DM_GAME_OBS_MAX
+#define DM_GAME_OBS_MAX 29
+#endif
 enum { OBS_MOVIE_RING_LINK = 19, OBS_MOVIE_RING_UNLINK = 20,   // Metroid Dread 2.1.0's movie request ring (hle_movie.c)
        OBS_UE_MALLOC = 21,                                       // DRAGON QUEST VII Reimagined 1.2.0: Unreal's allocator object just made (hle_uemalloc.c)
        OBS_REGION_ASK = 22, OBS_REGION_GOT = 23, OBS_REGION_FREE = 24, OBS_STDALLOC_INIT = 25,
-       OBS_ACNH_PERSPECTIVE = 26, OBS_ACNH_UI_PANE = 28, OBS_MAX = 29 };
+       OBS_ACNH_PERSPECTIVE = 26, OBS_ACNH_UI_PANE = 28, OBS_MAX = DM_GAME_OBS_MAX };
 // Bits 8+ carry the callback parameter. entry.S restores callback writes to x0–x29.
 void gate_obs_set(int id, void (*fn)(uint64_t *regs, int param));
 int gate_obs_present(int id);

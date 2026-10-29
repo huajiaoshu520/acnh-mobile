@@ -83,6 +83,7 @@ if [ -f "$ICON" ]; then
   t "app icon: $ICON"
 else t "no app icon ($ICON not found): the home-screen icon stays blank"; fi
 xcodegen generate -q > /dev/null || die "xcodegen"
+python3 "$DM/games/platform_info.py" "$GAME" Sources/Info.plist || die "game platform metadata"
 
 t "xcodebuild (Release, unsigned, iPhone + iPad)"
 mkdir -p "$O"

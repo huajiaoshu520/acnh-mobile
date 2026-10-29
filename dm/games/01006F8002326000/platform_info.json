@@ -1,0 +1,6 @@
+{
+  "NSLocalNetworkUsageDescription": "在游戏机场选择本地联机时，查找同一 Wi-Fi 的岛屿并与另一台设备通信。",
+  "NSBonjourServices": [
+    "_acnhldn._udp"
+  ]
+}

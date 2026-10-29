@@ -1,2 +1,2 @@
 # ACNH 3.0.3 only; rewriter verifies build identity and original instructions.
-OBS = {'ff1d1c05670db6021c85b624a710b963': [(0x37e5968, 26, 'bd409800', 'ACNH expanded-view perspective'), (0x27d4c0, 28, 'fc1b0fe8', 'ACNH screen-layout aspect and transition masks')]}
+OBS = {'ff1d1c05670db6021c85b624a710b963': [(0x37e5968, 26, 'bd409800', 'ACNH expanded-view perspective'), (0x27d4c0, 28, 'fc1b0fe8', 'ACNH screen-layout aspect and transition masks'), (0x1296c4, 29 | (1 << 8), 'd10143ff', 'ACNH LAN result copy observer; read-only'), (0x129780, 29 | (2 << 8), 'd10143ff', 'ACNH LAN result propagation observer; read-only')]}
