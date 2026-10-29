@@ -99,7 +99,7 @@ int main(void){
   }
  }
  // Captured item-name bubbles have a custom parts transform. Compensate
- // only their replay picture on tablets, retaining iPhone and source scales.
+ // only their replay picture, retaining capture-source and glyph scales.
  uint64_t balloonObj[40]={0},replayObj[40]={0},captureParent[40]={0},altObj[40]={0},beakObj[40]={0};
  uintptr_t bl=(uintptr_t)balloonObj,rp=(uintptr_t)replayObj,ca=(uintptr_t)captureParent,ap=(uintptr_t)altObj,bk=(uintptr_t)beakObj;
  balloonObj[0]=base+0x4a8f128;*(uintptr_t*)(bl+0x18)=up;strcpy((char*)(bl+0xb0),"L_ItemBalloon_00");
@@ -121,9 +121,72 @@ int main(void){
    r[0]=panes[j];ui_pane(r,0);float expected=j==2?1:factor;
    assert(fabsf(ui_float(panes[j],0x4c)-expected)<1e-6);
    ui_pane(r,0);assert(fabsf(ui_float(panes[j],0x4c)-expected)<1e-6);
-   assert(ui_float(panes[j],0x48)==1&&ui_float(panes[j],0x50)==740&&ui_float(panes[j],0x54)==148);
+   float expectedX=j==2?1:fminf(1,(16.f/9.f)/bubbleAspects[i]);
+   assert(fabsf(ui_float(panes[j],0x48)-expectedX)<1e-6);
+   assert(ui_float(panes[j],0x50)==740&&ui_float(panes[j],0x54)==148);
    if(j<2&&bubbleAspects[i]<16.f/9.f)assert(fabsf(ui_float(panes[j],0x4c)*(16.f/9.f)/bubbleAspects[i]-1)<1e-6);
   }
  }
+ // PocketMenu held item: world-derived position under N_Main_00 must
+ // land on the same slot after horizontal/vertical root compensation.
+ uint64_t pocketMain[40]={0},dragObj[40]={0};
+ uintptr_t pm=(uintptr_t)pocketMain,dp=(uintptr_t)dragObj;
+ pocketMain[0]=base+0x474d1f8;*(uintptr_t*)(pm+0x18)=up;
+ strcpy((char*)(pm+0xb0),"N_Main_00");
+ dragObj[0]=base+0x4a8f128;*(uintptr_t*)(dp+0x18)=pm;
+ strcpy((char*)(dp+0xb0),"L_DragBtn_00");
+ fput((void*)(dp+0x48),.95f);fput((void*)(dp+0x4c),.95f);
+ const float dragAspects[]={2622.f/1206.f,4.f/3.f,2360.f/1640.f,16.f/9.f};
+ for(unsigned i=0;i<sizeof dragAspects/sizeof *dragAspects;i++){
+  acnh_wide_set_aspect(dragAspects[i]);r[0]=up;ui_pane(r,0);
+  float ex=fmaxf(1,dragAspects[i]/(16.f/9.f)),ey=fmaxf(1,(16.f/9.f)/dragAspects[i]);
+  for(int edge=-1;edge<=1;edge+=2){
+   float x=edge*600.f,y=edge*240.f;
+   fput((void*)(dp+0x30),x);fput((void*)(dp+0x34),y);r[0]=dp;ui_pane(r,0);
+   assert(fabsf(ui_float(dp,0x30)/ex-x)<.002f);
+   assert(fabsf(ui_float(dp,0x34)/ey-y)<.002f);
+   float dx=ui_float(dp,0x30),dy=ui_float(dp,0x34);ui_pane(r,0);
+   assert(ui_float(dp,0x30)==dx&&ui_float(dp,0x34)==dy);
+   assert(ui_float(dp,0x48)==.95f&&ui_float(dp,0x4c)==.95f);
+  }
+ }
+ acnh_wide_set_aspect(16.f/9.f);r[0]=up;ui_pane(r,0);r[0]=dp;ui_pane(r,0);
+ assert(ui_float(dp,0x30)==600&&ui_float(dp,0x34)==240);
+ // Freshly opened CmnSubWin already receives the compensated item anchor.
+ // Preserve it and the local left/right avoidance offsets across reopening.
+ uint64_t actionObj[40]={0};uintptr_t act=(uintptr_t)actionObj;
+ actionObj[0]=base+0x4a85590;*(uintptr_t*)(act+0x18)=up;
+ strcpy((char*)(act+0xb0),"N_TypeH_00");
+ fput((void*)(act+0x50),30);fput((void*)(act+0x54),40);
+ fput((void*)(act+0x48),1);fput((void*)(act+0x4c),1);
+ for(unsigned i=0;i<sizeof dragAspects/sizeof *dragAspects;i++){
+  acnh_wide_set_aspect(dragAspects[i]);r[0]=up;ui_pane(r,0);
+  float ex=fmaxf(1,dragAspects[i]/(16.f/9.f)),ey=fmaxf(1,(16.f/9.f)/dragAspects[i]);
+  fput((void*)(up+0x70),ui_float(up,0x48));fput((void*)(up+0x84),ui_float(up,0x4c));
+  for(int side=-1;side<=1;side+=2){
+   float anchor=side*693.f/ex;
+   fput((void*)(up+0x30),anchor);fput((void*)(up+0x34),219.f/ey);
+   r[0]=act;ui_pane(r,0);
+   float origin=ui_float(up,0x30)+ui_float(up,0x70)*ui_float(act,0x30);
+   assert(fabsf(origin-anchor)<.002f);
+   assert(fabsf(ui_float(up,0x34)+ui_float(up,0x84)*ui_float(act,0x34)-219.f/ey)<.002f);
+   // Original menu bounds: right of the left item, left of the right item.
+   float offset=side<0?90.f:-450.f, menuLeft=origin+offset/ex,menuRight=menuLeft+360.f/ex;
+   if(side<0)assert(menuLeft>anchor+28.f/ex);
+   else assert(menuRight<anchor-28.f/ex);
+   float x=ui_float(act,0x30),y=ui_float(act,0x34);ui_pane(r,0);
+   assert(ui_float(act,0x30)==x&&ui_float(act,0x34)==y);
+   assert(ui_float(act,0x48)==1&&ui_float(act,0x4c)==1);
+  }
+ }
+ acnh_wide_set_aspect(16.f/9.f);r[0]=up;ui_pane(r,0);r[0]=act;ui_pane(r,0);
+ assert(fabsf(ui_float(act,0x30))<.002f&&fabsf(ui_float(act,0x34))<.002f);
+ fput((void*)(up+0x30),0);fput((void*)(up+0x34),0);
+ // The 740x128 string variant uses the same final replay, not its source.
+ fput((void*)(rp+0x54),128);acnh_wide_set_aspect(2622.f/1206.f);
+ r[0]=up;ui_pane(r,0);r[0]=rp;ui_pane(r,0);
+ assert(fabsf(ui_float(rp,0x48)*(2622.f/1206.f)/(16.f/9.f)-1)<1e-6);
+ acnh_wide_set_aspect(16.f/9.f);r[0]=up;ui_pane(r,0);r[0]=rp;ui_pane(r,0);
+ assert(ui_float(rp,0x48)==1&&ui_float(rp,0x4c)==1);
  puts("PASS: world proportions, fixed vertical FOV, minimap exclusion, square views, UI proportion, idempotence and restore");
 }

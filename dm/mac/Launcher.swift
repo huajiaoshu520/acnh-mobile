@@ -29,6 +29,7 @@ struct LauncherView: View {
             .padding([.horizontal, .top], 20)
             Form {
                 settingSections(basic: true)
+                CloudSavesSection()
                 Section {
                     DisclosureGroup(LauncherText.text("Advanced settings", "高级设置"), isExpanded: $advanced) {}
                 }
@@ -68,6 +69,51 @@ struct LauncherView: View {
                 }
             }
         }
+    }
+}
+
+/// Cloud saves: a folder the save is synced through (dm/host/save_sync.h), the one the iPhone app picks in its launcher's Cloud saves section. It is kept in this app's
+/// preferences as cloudSaves.folder, which launcher.c puts into DM_SAVE_SYNC before the host starts; a DM_SAVE_SYNC an env file or the launch environment set wins, and is shown here.
+struct CloudSavesSection: View {
+    @AppStorage("cloudSaves.folder") private var folder = ""
+    private let fixed: String? = {
+        let env = ProcessInfo.processInfo.environment
+        let keys = ((env["DM_ENV_FILE_KEYS"] ?? "") + " " + (env["DM_ENV_LAUNCH_KEYS"] ?? "")).split(separator: " ")
+        return keys.contains("DM_SAVE_SYNC") || env["DM_SAVE_SYNC"] != nil ? env["DM_SAVE_SYNC"] : nil
+    }()
+
+    var body: some View {
+        Section {
+            LabeledContent(LauncherText.text("Cloud saves", "云存档同步")) {
+                Text(fixed.map { "\(Self.shown($0)) (env.txt)" } ?? (folder.isEmpty ? LauncherText.text("Off", "关闭") : Self.shown(folder)))
+                    .foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
+            }
+            if fixed == nil {
+                HStack {
+                    Button(folder.isEmpty ? LauncherText.text("Choose a folder…", "选择文件夹…") : LauncherText.text("Choose a different folder…", "选择其他文件夹…"), action: choose)
+                    if !folder.isEmpty { Button(LauncherText.text("Turn off", "关闭")) { folder = "" } }
+                }
+            }
+        } footer: {
+            Text(LauncherText.text("Choose the iCloud Drive folder the iPhone app uses for this game. The save comes in when the game starts and goes out after each save; a save that is replaced is kept in the save's -backups folder.", "请选择与 iPhone 相同的 iCloud Drive 文件夹。启动时同步存档，保存后上传；被替换的存档保留在 -backups 文件夹。"))
+        }
+    }
+
+    private func choose() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = false; panel.canCreateDirectories = true
+        panel.prompt = LauncherText.text("Use for Cloud Saves", "用于云存档同步")
+        panel.message = LauncherText.text("The folder the iPhone app chose in its launcher's Cloud saves", "请选择与 iPhone 云存档同步相同的文件夹")
+        panel.directoryURL = URL(fileURLWithPath: folder.isEmpty ? Self.drive : folder)
+        if panel.runModal() == .OK, let url = panel.url { folder = url.path }
+    }
+
+    static let drive = NSHomeDirectory() + "/Library/Mobile Documents/com~apple~CloudDocs"   // iCloud Drive, as the Finder shows it
+
+    /// A path under iCloud Drive as the Finder and the Files app name it: iCloud Drive › Documents › dev › Zelda; any other path as it is
+    static func shown(_ path: String) -> String {
+        guard path == drive || path.hasPrefix(drive + "/") else { return path }
+        return (["iCloud Drive"] + path.dropFirst(drive.count).split(separator: "/").map(String.init)).joined(separator: " › ")
     }
 }
 

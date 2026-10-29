@@ -130,6 +130,7 @@ private struct LauncherView: View {
                                 }
                             }
                         }
+                        CloudSavesSection()
                         Section {
                             Button(localized("Reset to tested defaults", "恢复默认设置")) { m.reset() }
                                 .disabled(!m.changed)

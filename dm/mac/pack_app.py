@@ -68,8 +68,10 @@ def build_launcher(out, minos):   # launcher.c's main, linked by swiftc with the
     with tempfile.TemporaryDirectory(dir=out.parent) as t:
         obj = Path(t) / 'launcher.o'
         run([clang, '-isysroot', sdk, '-arch', 'arm64', f'-mmacosx-version-min={minos}', '-O2', '-Wall', '-I', HERE.parent / 'host', '-c', '-o', obj, HERE / 'launcher.c'])
+        sync_obj = Path(t) / 'save_sync.o'
+        run([clang, '-isysroot', sdk, '-arch', 'arm64', f'-mmacosx-version-min={minos}', '-O2', '-Wall', '-c', '-o', sync_obj, HERE.parent / 'host/save_sync.c'])
         run([swiftc, '-sdk', sdk, '-target', f'arm64-apple-macos{minos}', '-O', '-swift-version', '5', '-parse-as-library', '-module-cache-path', Path(t) / 'module-cache',
-             '-o', out, *swift_sources(), obj, '-framework', 'CoreFoundation', '-framework', 'AppKit', '-framework', 'SwiftUI'])
+             '-o', out, *swift_sources(), obj, sync_obj, '-framework', 'CoreFoundation', '-framework', 'AppKit', '-framework', 'SwiftUI'])
 
 
 def make_icns(jpg, out):   # the game's icon (256x256 JPEG) at every size an .icns holds

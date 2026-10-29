@@ -22,7 +22,8 @@ static void ui_pane(uint64_t *r,int param) {
  int plain=vt==0x474d1f8||vt==0x4a85590,parts=vt==0x474d310;
  int picture=vt==0x474d418||vt==0x474de58||vt==0x4a87220;
  int cursor=vt==0x4a8f128&&!strcmp((const char*)(p+0xb0),"L_Cursor_00");
- if(parent&&!plain&&!parts&&!picture&&!cursor)return;
+ int pocket_drag=(parts||vt==0x4a8f128)&&!strcmp((const char*)(p+0xb0),"L_DragBtn_00");
+ if(parent&&!plain&&!parts&&!picture&&!cursor&&!pocket_drag)return;
  pthread_mutex_lock(&ui_mutex);
  if(!parent){
   acnh_ui_record *c=ui_record(p,fabsf(k-1.f)>.001f);if(!c){pthread_mutex_unlock(&ui_mutex);return;}
@@ -51,7 +52,13 @@ static void ui_pane(uint64_t *r,int param) {
  // coordinates applies the root compensation twice (drift toward centre).
  // Undo that second conversion for the direct-root cursor, not its animation
  // children; retain the normal icon scale and hand-tip animation offset.
- if(cursor&&parent==top){
+ // PocketMenu's held-item layer is a sibling under N_Main_00. Like the
+ // cursor, its position comes from a world-space slot, not an untouched
+ // layout coordinate. Compensate that position once; its icon/animation
+ // children keep their original scale and local offsets.
+ int drag_target=pocket_drag&&!strcmp((const char*)(parent+0xb0),"N_Main_00")&&
+  *(uintptr_t*)(parent+0x18)==top;
+ if((cursor&&parent==top)||drag_target){
   acnh_ui_record *c=ui_record(p,fabsf(k-1.f)>.001f);
   if(c){
    float tx=ui_float(p,0x30),ty=ui_float(p,0x34);
@@ -62,6 +69,9 @@ static void ui_pane(uint64_t *r,int param) {
   }
   pthread_mutex_unlock(&ui_mutex);return;
  }
+ // CmnSubWin supplies an already transformed root anchor when opened.
+ // Keep its local N_TypeH_00 offsets unchanged: translating that branch
+ // again moves the action balloon onto the selected item.
  if(picture){
   float w=ui_float(p,0x50),h=ui_float(p,0x54),H=root->height;
   // WipeCircle uses two inner-edge-anchored black side panels rather than
@@ -70,16 +80,20 @@ static void ui_pane(uint64_t *r,int param) {
   const char *name=(const char*)(p+0xb0);
   // LPocketBalloon replays a 740x148 offscreen capture through a parts
   // pane whose world matrix deliberately ignores the menu root's scale.
-  // Apply the missing tablet Y compensation to the replay only. Scaling
-  // its text/capture source as well would apply the correction twice.
+  // Apply both phone X and tablet Y compensation to the final replay.
+  // The capture already contains the bubble and glyphs: changing source
+  // text or the parts container too would apply the correction twice.
   int replay=!strcmp(name,"P_Cap_00")||
    (!strcmp(name,"P_Capture_00")&&!strcmp((const char*)(parent+0xb0),"N_Capture_01"));
-  if(pocket_balloon&&replay&&fabsf(w-740.f)<.01f&&fabsf(h-148.f)<.01f){
-   acnh_ui_record *c=ui_record(p,ey>1.001f);
+  if(pocket_balloon&&replay&&fabsf(w-740.f)<.01f&&
+   (fabsf(h-148.f)<.01f||fabsf(h-128.f)<.01f)){
+   acnh_ui_record *c=ui_record(p,fabsf(k-1.f)>.001f);
    if(c){
-    float sy=ui_float(p,0x4c);
+    float sx=ui_float(p,0x48),sy=ui_float(p,0x4c);
+    if(!c->valid||sx!=c->last_sx)c->sx=sx;
     if(!c->valid||sy!=c->last_sy)c->sy=sy;
-    c->last_sy=c->sy/ey;ui_write(p,0x4c,c->last_sy);c->valid=1;
+    c->last_sx=c->sx/ex;c->last_sy=c->sy/ey;
+    ui_write(p,0x48,c->last_sx);ui_write(p,0x4c,c->last_sy);c->valid=1;
    }
    pthread_mutex_unlock(&ui_mutex);return;
   }

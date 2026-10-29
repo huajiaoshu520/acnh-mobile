@@ -53,6 +53,7 @@ jobs:
       - name: Audit source and test packaging
         run: |
           python tools/audit_release.py .
+          make -C dm/host/tests GAME=01006F8002326000 save-sync
           python tools/test_shell.py
           python tools/test_rewritten_display.py
           python tools/test_nsp_external_drive.py

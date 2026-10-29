@@ -16,7 +16,7 @@ endif
 GAME_H = gen/$(GAME)/game_profile.h
 CFLAGS=-O1 -g -Wall -Wno-unused-function
 # Service-layer takeover hle_*.c files are included by wildcard: adding a file does not touch this line (avoids merge conflicts)
-SRC=caps_photo.m main.c loader.c hle.c crash.c probe.c thread.c memstat.m haptics_apple.m $(sort $(wildcard hle_*.c)) front_mac.m entry.S
+SRC=save_sync.c caps_photo.m main.c loader.c hle.c crash.c probe.c thread.c memstat.m haptics_apple.m $(sort $(wildcard hle_*.c)) front_mac.m entry.S
 # Optional sources owned by the selected profile; absent for other games.
 -include $(GAME_DIR)/sources.mk
 # NVN null device + nn::vi + the Vulkan layer (dm/gfx/)

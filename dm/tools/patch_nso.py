@@ -14,6 +14,9 @@
 import struct, re, sys, os, glob, types, importlib.util
 from itertools import combinations
 import lz4.block
+import capstone, shlex
+if capstone.cs_version()[0] != 5:
+    sys.exit(f'[RED] Capstone {capstone.__version__} is unsupported; use Capstone 5.x: '+shlex.join([sys.executable,"-m","pip","install","capstone>=5,<6"]))
 from capstone import *
 from capstone.arm64 import ARM64_OP_IMM, ARM64_OP_MEM, ARM64_OP_REG
 import nso_asm
