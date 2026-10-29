@@ -86,6 +86,10 @@ jobs:
           python dm/tools/tests/test_address_regions.py
           python dm/tools/tests/test_patches.py
           python tools/test_shader_tables.py
+          python tools/test_shader_appledouble.py
+          make -C dm/gfx/tests GAME=01006F8002326000 check_t_sbw
+          make -C dm/host/tests GAME=01006F8002326000 build/t_time
+          dm/host/tests/build/t_time
           make -C dm/host/tests GAME=01006F8002326000 build/t_hid
           dm/host/tests/build/t_hid
           make -C dm/gfx/tests GAME=01006F8002326000 check_t_capture t_capture_live nvn_replay t_tex_fit_root
@@ -146,10 +150,16 @@ jobs:
             echo 'Release exists; refusing to overwrite.' >&2
             exit 1
           fi
-          gh release create "$RELEASE_TAG" "$RUNNER_TEMP"/shell-output/* \
+          mkdir -p "$RUNNER_TEMP/host-output"
+          gh release download v0.3.67 --repo "$GITHUB_REPOSITORY" --pattern 'LiveContainer-3.8.11+SideStore-ACNH-LAN-unsigned.ipa*' --dir "$RUNNER_TEMP/host-output"
+          (cd "$RUNNER_TEMP/host-output" && echo '2045982f1190b41741b92616ee71882d0c3d462ae87ffd3581cb4833450fb993  LiveContainer-3.8.11+SideStore-ACNH-LAN-unsigned.ipa' | shasum -a 256 -c -)
+          cat "docs/RELEASE-$RELEASE_TAG.zh-CN.md" "docs/RELEASE-$RELEASE_TAG.en.md" > "$RUNNER_TEMP/release-notes.md"
+          gh release create "$RELEASE_TAG" "$RUNNER_TEMP"/shell-output/* "$RUNNER_TEMP"/host-output/* \
             --target "$(git rev-parse HEAD)" --draft \
             --title "ACNH Mobile $RELEASE_TAG · 官方 Metal 4 空壳" \
-            --notes-file "docs/RELEASE-$RELEASE_TAG.zh-CN.md"
-          gh release download "$RELEASE_TAG" --dir "$RUNNER_TEMP/remote-shell"
+            --notes-file "$RUNNER_TEMP/release-notes.md"
+          gh release download "$RELEASE_TAG" --pattern "ACNHMobile-*-shell-unsigned.ipa" --pattern "shell-audit.json" --pattern "SHA256SUMS.txt" --dir "$RUNNER_TEMP/remote-shell"
           python tools/verify_shell.py "$RUNNER_TEMP/remote-shell"
+          gh release download "$RELEASE_TAG" --pattern 'LiveContainer-3.8.11+SideStore-ACNH-LAN-unsigned.ipa*' --dir "$RUNNER_TEMP/remote-host"
+          (cd "$RUNNER_TEMP/remote-host" && shasum -a 256 -c 'LiveContainer-3.8.11+SideStore-ACNH-LAN-unsigned.ipa.sha256')
           gh release edit "$RELEASE_TAG" --draft=false --latest

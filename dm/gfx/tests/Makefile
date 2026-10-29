@@ -212,3 +212,9 @@ t_tex_fit_root: t_tex_fit_root.m $(MTL_T_DEP)
 check_t_tex_fit_root: t_tex_fit_root
 	MTL_DEBUG_LAYER=1 ./t_tex_fit_root
 run: check_t_tex_fit_root
+
+t_sbw: t_sbw.m $(MTL_T_DEP)
+	clang $(CFLAGS) -fobjc-arc -o $@ t_sbw.m $(MTL_T_SRC) $(FW)
+.PHONY: check_t_sbw
+check_t_sbw: t_sbw
+	./t_sbw

@@ -11,6 +11,7 @@
 import os, re, json, shutil, ctypes, hashlib, threading, subprocess, collections
 
 FORMAT = b'dmsh_mtlcache 1'
+OUTPUT = re.compile(r'[0-9a-f]{16}_b\.metal')
 _clonefile = getattr(ctypes.CDLL(None, use_errno=True), 'clonefile', None)   # APFS copy-on-write copy (no data written); elsewhere a plain copy
 
 
@@ -77,7 +78,7 @@ class Cache:
         stamp_file = os.path.join(self.root, 'filled.json')
         try: stamps = json.load(open(stamp_file))
         except (OSError, ValueError): stamps = {}
-        names = set(os.listdir(mac_dir)); stems = sorted(n[:-6] for n in names if n.endswith('_b.metal'))
+        names = set(os.listdir(mac_dir)); stems = sorted(n[:-6] for n in names if OUTPUT.fullmatch(n))
         todo, notes = {}, []
         for target, d in (('mac', mac_dir), ('ios', ios_dir)):
             if target not in self.targets or not d or not os.path.isdir(d): continue

@@ -26,9 +26,13 @@ void *dm_guest_thread_spawn(void (*f)(void*),void *a,int p,size_t z){(void)f;(vo
 void dm_guest_thread_join(void *t){CHECK(t==(void*)3);joins++;}
 void *dm_pcmout_open(int c){(void)c;return NULL;}void dm_pcmout_close(void *p){(void)p;}void dm_pcmout_start(void *p){(void)p;}
 int dm_pcmout_append(void *p,void *b){(void)p;(void)b;return 0;}void *dm_pcmout_released(void *p){(void)p;return NULL;}void dm_pcmout_wait(void *p,int m){(void)p;(void)m;}
+static int notification_binds;
+void hle_bind_system_event(void *ev,int signaled){CHECK(ev==(void*)9);CHECK(!signaled);notification_binds++;}
 int main(void){uint8_t param[P_SIZE]={0};void *h[2]={0};
  CHECK(!h_ar_Open0(h,param,NULL,0));CHECK(starts==1);CHECK(atomic_load(&g_open));h_ar_Close(h[0],h[1]);CHECK(joins==1);
  expect_event=1;ready=0;CHECK(!h_ar_Open(h,(void*)4,param,NULL,0));CHECK(starts==2);CHECK(atomic_load(&g_open));h_ar_Close(h[0],h[1]);CHECK(joins==2);
  fail_open=1;CHECK(h_ar_Open(h,(void*)4,param,NULL,0)==1);CHECK(starts==2);CHECK(!atomic_load(&g_open));
+ CHECK(h_ad_Notify((void*)9)==0);CHECK(notification_binds==1);
+ CHECK(h_ad_Notify((void*)9)==0x499);CHECK(notification_binds==1);
  printf("audio renderer open: %d checks, %d failed\n",checks,fails);return fails!=0;
 }

@@ -22,6 +22,7 @@ DEFINITION = re.compile(r"\b(u?int|u?short|u?long|bool)\s+(_\d+)\s*=\s*([^;]+);"
 ASSIGNMENT = re.compile(r"(?<![\w.])(_\d+)\s*(?:<<|>>|[-+*/%&|^])?=(?!=)|(?<![\w.])(_\d+)\s*(?:\+\+|--)|(?:\+\+|--)\s*(_\d+)\b")
 TOKEN = re.compile(r"\s*(0[xX][0-9a-fA-F]+[uU]?|\d+\.\d*(?:[eE][-+]?\d+)?f?|\d+[uU]?|[A-Za-z_]\w*(?:\.\w+)*|\.\w+|<<|>>|<=|>=|==|!=|&&|\|\||[-+*/%&|^~!?:(),<>\[\]])")
 UNBOUNDED = (None, None)
+OUTPUT = re.compile(r"[0-9a-f]{16}_b\w*\.(metal|json)")
 CASTS = {"int", "uint", "short", "ushort", "long", "ulong"}
 BINARY = {"||": 1, "&&": 2, "|": 3, "^": 4, "&": 5, "==": 6, "!=": 6, "<": 7, ">": 7, "<=": 7, ">=": 7, "<<": 8, ">>": 8, "+": 9, "-": 9, "*": 10, "/": 10, "%": 10}
 
@@ -200,14 +201,15 @@ def proven(index, definitions, span):
     return span is not None and known(low, high) and low >= 0 and 16 * (high + 1) <= span
 
 
+def outputs(version_dir, ext):
+    return [n for n in sorted(os.listdir(version_dir)) if (m := OUTPUT.fullmatch(n)) and m.group(1) == ext]
+
 def main():
     if len(sys.argv) != 3:
         raise SystemExit(f"usage: {sys.argv[0]} <dmsh_b version dir> <output tsv>")
     version_dir, output = map(os.path.abspath, sys.argv[1:])
     keys = []
-    for name in sorted(os.listdir(version_dir)):
-        if not name.endswith(".metal"):
-            continue
+    for name in outputs(version_dir, "metal"):
         path = os.path.join(version_dir, name)
         with open(path, encoding="utf-8") as stream:
             source = stream.read()

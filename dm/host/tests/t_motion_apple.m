@@ -41,8 +41,10 @@ int main(void) { @autoreleasepool {
     m.hasGravityAndUserAcceleration = NO; m.rotationRate = (GCRotationRate){0};
     m.valueChangedHandler((id)m);
     assert(samples == 2 && acc[2] == 0);   // Once real data arrives, a zero acceleration can be free fall.
+    m.sensorsActive = NO; dm_motion_rearm((id)c); assert(m.sensorsActive);
     dm_motion_detach((id)c, 2);
     assert(!m.sensorsActive && !m.valueChangedHandler && cleared == 2);
+    dm_motion_rearm((id)c); assert(!m.sensorsActive);
     puts("t_motion_apple: passed");
     return 0;
 } }

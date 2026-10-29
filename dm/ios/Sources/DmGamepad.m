@@ -413,3 +413,5 @@ void dm_gamepad_reset(void) {
 }
 
 UIView *dm_acnh_gamepad_preview(CGRect frame){return [[DmGamepad alloc] initWithFrame:frame];}
+
+void dm_gamepad_active(void) { dispatch_async(dispatch_get_main_queue(), ^{ for (GCController *c in GCController.controllers) dm_motion_rearm(c); }); }
