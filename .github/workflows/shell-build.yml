@@ -54,6 +54,15 @@ jobs:
         run: |
           python tools/audit_release.py .
           make -C dm/host/tests GAME=01006F8002326000 save-sync
+          make -C dm/host/tests GAME=01006F8002326000 build/t_cheats build/t_bigstack build/t_pad_apple build/t_nv build/t_oe
+          dm/host/tests/build/t_cheats
+          dm/host/tests/build/t_bigstack
+          dm/host/tests/build/t_pad_apple
+          dm/host/tests/build/t_nv
+          dm/host/tests/build/t_oe
+          python -m unittest dm/tools/tests/test_cheat_anchor.py
+          make -C dm/gfx/tests GAME=01006F8002326000 t_dirty_retire_race
+          dm/gfx/tests/t_dirty_retire_race
           python tools/test_shell.py
           python tools/test_rewritten_display.py
           python tools/test_nsp_external_drive.py

@@ -107,7 +107,7 @@ int front_ios_boot_ok(void) { return g_boot_ok; }
 @end
 @implementation App
 - (UISceneConfiguration *)application:(UIApplication *)a configurationForConnectingSceneSession:(UISceneSession *)s options:(UISceneConnectionOptions *)o {
-    return [[UISceneConfiguration alloc] initWithName:@"Default" sessionRole:s.role];
+    return [[UISceneConfiguration alloc] initWithName:[s.role isEqualToString:UIWindowSceneSessionRoleExternalDisplayNonInteractive] ? @"TV" : @"Default" sessionRole:s.role];   // a TV (front_ios.m DmTVSceneDelegate)
 }
 @end
 

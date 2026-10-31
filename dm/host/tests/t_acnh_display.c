@@ -61,6 +61,38 @@ int main(void){
   r[0]=bp;ui_pane(r,0);assert(ui_float(bp,0x48)==1&&ui_float(bp,0x4c)==1);
   r[0]=sp;ui_pane(r,0);assert(ui_float(sp,0x54)==1080);
  }
+ // Catalog/NatteeCatalog exit curtains: a moving 320-high picture carries
+ // a 500/430-high child. Both meshes must cover the wide canvas; changing
+ // width on the parent does not scale its child. Preserve animation and text.
+ uint64_t curtainGroup[40]={0},curtainOuter[40]={0},curtainInner[40]={0};
+ uintptr_t cg=(uintptr_t)curtainGroup,co=(uintptr_t)curtainOuter,ci=(uintptr_t)curtainInner;
+ curtainGroup[0]=base+0x474d1f8;*(uintptr_t*)(cg+0x18)=up;strcpy((char*)(cg+0xb0),"N_InOut_02");
+ curtainOuter[0]=curtainInner[0]=base+0x474d418;
+ *(uintptr_t*)(co+0x18)=cg;*(uintptr_t*)(ci+0x18)=co;
+ strcpy((char*)(ci+0xb0),"P_pict_02");
+ fput((void*)(co+0x50),1920);fput((void*)(co+0x54),320);
+ fput((void*)(ci+0x50),1920);fput((void*)(ci+0x54),500);
+ fput((void*)(co+0x48),1);fput((void*)(co+0x4c),1);
+ fput((void*)(ci+0x48),1);fput((void*)(ci+0x4c),1);
+ const float curtainAspects[]={2622.f/1206.f,2868.f/1320.f,4.f/3.f,16.f/9.f};
+ for(int kind=0;kind<2;kind++){
+  strcpy((char*)(co+0xb0),kind?"P_BG_07":"P_pict_00");
+  for(unsigned i=0;i<sizeof curtainAspects/sizeof *curtainAspects;i++){
+   acnh_wide_set_aspect(curtainAspects[i]);r[0]=up;ui_pane(r,0);
+   float ex=fmaxf(1,curtainAspects[i]/(16.f/9.f));
+   for(int frame=0;frame<=20;frame++){
+    float y=frame*32.f;fput((void*)(co+0x34),y);
+    r[0]=co;ui_pane(r,0);r[0]=ci;ui_pane(r,0);
+    assert(fabsf(ui_float(co,0x50)-1920*ex)<.002f);
+    assert(fabsf(ui_float(ci,0x50)-1920*ex)<.002f);
+    assert(ui_float(co,0x34)==y&&ui_float(co,0x48)==1&&ui_float(ci,0x48)==1);
+    float width=ui_float(ci,0x50);ui_pane(r,0);assert(ui_float(ci,0x50)==width);
+   }
+  }
+ }
+ // A similarly named item/preview panel is not a screen-wide curtain.
+ fput((void*)(ci+0x50),600);acnh_wide_set_aspect(2622.f/1206.f);
+ r[0]=up;ui_pane(r,0);r[0]=ci;ui_pane(r,0);assert(ui_float(ci,0x50)==600);
  // Real Storage.bflyt header: extend decoration only, including reset/animation.
  uint64_t storageGroup[40]={0},headerParent[40]={0},headerPane[40]={0};
  uintptr_t sg=(uintptr_t)storageGroup,hp=(uintptr_t)headerParent,hd=(uintptr_t)headerPane;
@@ -98,35 +130,70 @@ int main(void){
    assert(ui_float(cp,0x48)==1&&ui_float(cp,0x4c)==1);
   }
  }
- // Captured item-name bubbles have a custom parts transform. Compensate
- // only their replay picture, retaining capture-source and glyph scales.
- uint64_t balloonObj[40]={0},replayObj[40]={0},captureParent[40]={0},altObj[40]={0},beakObj[40]={0};
- uintptr_t bl=(uintptr_t)balloonObj,rp=(uintptr_t)replayObj,ca=(uintptr_t)captureParent,ap=(uintptr_t)altObj,bk=(uintptr_t)beakObj;
+ // DIY recipe cursor is nested one level below N_InOut_01. The target
+ // coordinates have already passed through the root matrix, just as in
+ // Storage; cover the first/last columns and multiple rows in both axes.
+ uint64_t recipeGroup[40]={0};uintptr_t recipe=(uintptr_t)recipeGroup;
+ recipeGroup[0]=base+0x4a85590;*(uintptr_t*)(recipe+0x18)=up;
+ strcpy((char*)(recipe+0xb0),"N_InOut_01");*(uintptr_t*)(cp+0x18)=recipe;
+ const float recipeX[]={-792,32},recipeY[]={178,-138,-454};
+ for(unsigned i=0;i<sizeof cursorAspects/sizeof *cursorAspects;i++){
+  float ex=fmaxf(1,cursorAspects[i]/(16.f/9.f)),ey=fmaxf(1,(16.f/9.f)/cursorAspects[i]);
+  acnh_wide_set_aspect(cursorAspects[i]);r[0]=up;ui_pane(r,0);
+  for(unsigned col=0;col<2;col++)for(unsigned row=0;row<3;row++){
+   float x=recipeX[col]/ex,y=recipeY[row]/ey;
+   fput((void*)(cp+0x30),x);fput((void*)(cp+0x34),y);r[0]=cp;ui_pane(r,0);
+   assert(fabsf(ui_float(cp,0x30)-recipeX[col])<.002f);
+   assert(fabsf(ui_float(cp,0x34)-recipeY[row])<.002f);
+   ui_pane(r,0);assert(fabsf(ui_float(cp,0x30)/ex-x)<.002f);
+   assert(fabsf(ui_float(cp,0x34)/ey-y)<.002f);
+   assert(ui_float(cp,0x48)==1&&ui_float(cp,0x4c)==1);
+  }
+ }
+ // A different container remains outside this observed cursor path.
+ strcpy((char*)(recipe+0xb0),"N_Other_00");
+ fput((void*)(cp+0x30),123);fput((void*)(cp+0x34),456);r[0]=cp;ui_pane(r,0);
+ assert(ui_float(cp,0x30)==123&&ui_float(cp,0x34)==456);
+ *(uintptr_t*)(cp+0x18)=up;
+ // Live LPocketBalloon: final capture, intermediate capture and source
+ // glyphs use distinct pane types and must not receive double scaling.
+ uint64_t balloonObj[40]={0},replayObj[40]={0},captureParent[40]={0},altObj[40]={0},beakObj[40]={0},textObj[40]={0},rotateObj[40]={0};
+ uintptr_t bl=(uintptr_t)balloonObj,rp=(uintptr_t)replayObj,ca=(uintptr_t)captureParent,ap=(uintptr_t)altObj,bk=(uintptr_t)beakObj,tp=(uintptr_t)textObj,rot=(uintptr_t)rotateObj;
  balloonObj[0]=base+0x4a8f128;*(uintptr_t*)(bl+0x18)=up;strcpy((char*)(bl+0xb0),"L_ItemBalloon_00");
- replayObj[0]=altObj[0]=beakObj[0]=base+0x4a87220;
- *(uintptr_t*)(rp+0x18)=bl;strcpy((char*)(rp+0xb0),"P_Cap_00");
- *(uintptr_t*)(ca+0x18)=bl;strcpy((char*)(ca+0xb0),"N_Capture_01");
+ rotateObj[0]=base+0x4a85590;*(uintptr_t*)(rot+0x18)=bl;strcpy((char*)(rot+0xb0),"N_Rotate_00");
+ replayObj[0]=altObj[0]=beakObj[0]=base+0x4a86968;
+ *(uintptr_t*)(rp+0x18)=rot;strcpy((char*)(rp+0xb0),"P_Cap_00");
+ *(uintptr_t*)(ca+0x18)=rot;strcpy((char*)(ca+0xb0),"N_Capture_01");
  *(uintptr_t*)(ap+0x18)=ca;strcpy((char*)(ap+0xb0),"P_Capture_00");
  *(uintptr_t*)(bk+0x18)=bl;strcpy((char*)(bk+0xb0),"P_Beak_00");
- uintptr_t panes[]={rp,ap,bk};
- for(int j=0;j<3;j++){
+ *(uintptr_t*)(tp+0x18)=rot;strcpy((char*)(tp+0xb0),"T_Name_00");
+ fput((void*)(tp+0x34),-1852);
+ uintptr_t panes[]={rp,ap,bk,tp};
+ for(int j=0;j<4;j++){
   fput((void*)(panes[j]+0x48),1);fput((void*)(panes[j]+0x4c),1);
   fput((void*)(panes[j]+0x50),740);fput((void*)(panes[j]+0x54),148);
  }
- const float bubbleAspects[]={2868.f/1320.f,4.f/3.f,2420.f/1668.f,16.f/9.f,2868.f/1320.f};
+ const float bubbleAspects[]={2622.f/1206.f,4.f/3.f,2420.f/1668.f,16.f/9.f,2622.f/1206.f};
  for(unsigned i=0;i<sizeof bubbleAspects/sizeof *bubbleAspects;i++){
   acnh_wide_set_aspect(bubbleAspects[i]);r[0]=up;ui_pane(r,0);
-  float factor=fminf(1,bubbleAspects[i]/(16.f/9.f));
-  for(int j=0;j<3;j++){
-   r[0]=panes[j];ui_pane(r,0);float expected=j==2?1:factor;
-   assert(fabsf(ui_float(panes[j],0x4c)-expected)<1e-6);
-   ui_pane(r,0);assert(fabsf(ui_float(panes[j],0x4c)-expected)<1e-6);
-   float expectedX=j==2?1:fminf(1,(16.f/9.f)/bubbleAspects[i]);
-   assert(fabsf(ui_float(panes[j],0x48)-expectedX)<1e-6);
+  float ex=fmaxf(1,bubbleAspects[i]/(16.f/9.f)),ey=fmaxf(1,(16.f/9.f)/bubbleAspects[i]);
+  for(int j=0;j<4;j++){
+   r[0]=panes[j];ui_pane(r,0);ui_pane(r,0);
+   int corrected=j==0||j==3;
+   assert(fabsf(ui_float(panes[j],0x48)-(corrected?1/ex:1))<1e-6);
+   assert(fabsf(ui_float(panes[j],0x4c)-(corrected?1/ey:1))<1e-6);
    assert(ui_float(panes[j],0x50)==740&&ui_float(panes[j],0x54)==148);
-   if(j<2&&bubbleAspects[i]<16.f/9.f)assert(fabsf(ui_float(panes[j],0x4c)*(16.f/9.f)/bubbleAspects[i]-1)<1e-6);
   }
+  float expected=-1852+1952*(1-1/ey);
+  assert(fabsf(ui_float(tp,0x34)-expected)<.001);
+  // Source lane rebase must cancel the distance lost to root scaling.
+  assert(fabsf(ui_float(tp,0x34)-1952*(1-1/ey)+1852)<.001);
  }
+ // The string variant has visible text, not the offscreen glyph lane.
+ fput((void*)(tp+0x34),118);acnh_wide_set_aspect(4.f/3.f);
+ r[0]=up;ui_pane(r,0);r[0]=tp;ui_pane(r,0);assert(ui_float(tp,0x34)==118);
+ acnh_wide_set_aspect(16.f/9.f);r[0]=up;ui_pane(r,0);r[0]=tp;ui_pane(r,0);
+ assert(ui_float(tp,0x48)==1&&ui_float(tp,0x4c)==1&&ui_float(tp,0x34)==118);
  // PocketMenu held item: world-derived position under N_Main_00 must
  // land on the same slot after horizontal/vertical root compensation.
  uint64_t pocketMain[40]={0},dragObj[40]={0};
@@ -182,6 +249,45 @@ int main(void){
  acnh_wide_set_aspect(16.f/9.f);r[0]=up;ui_pane(r,0);r[0]=act;ui_pane(r,0);
  assert(fabsf(ui_float(act,0x30))<.002f&&fabsf(ui_float(act,0x34))<.002f);
  fput((void*)(up+0x30),0);fput((void*)(up+0x34),0);
+ // Live storage action menu: world-space centre minus local half-width
+ // must retain the original gap for both mirrored row edges.
+ uint64_t actionTree[7][40]={{0}};uintptr_t nodes[7];
+ const char *nodeNames[]={"N_TypeH_00","N_Re_00","N_InOut_00","N_BtnNum_01","N_In_00","N_All_00","N_Size_00"};
+ for(int j=0;j<7;j++){
+  nodes[j]=(uintptr_t)actionTree[j];actionTree[j][0]=base+0x4a85590;
+  *(uintptr_t*)(nodes[j]+0x18)=j?nodes[j-1]:up;
+  strcpy((char*)(nodes[j]+0xb0),nodeNames[j]);
+  fput((void*)(nodes[j]+0x48),1);fput((void*)(nodes[j]+0x4c),1);
+ }
+ const float centre=381.8f, halfWidth=177.6f, requestedGap=100.f;
+ for(unsigned i=0;i<sizeof dragAspects/sizeof *dragAspects;i++){
+  float ex=fmaxf(1,dragAspects[i]/(16.f/9.f));
+  acnh_wide_set_aspect(dragAspects[i]);r[0]=up;ui_pane(r,0);
+  for(int side=-1;side<=1;side+=2){
+   float worldScale=-side/ex, anchor=side*693.f/ex;
+   float raw=requestedGap+halfWidth-centre/ex;
+   fput((void*)(nodes[2]+0x30),0);r[0]=nodes[2];ui_pane(r,0);
+   fput((void*)(nodes[2]+0x30),raw);
+   fput((void*)(nodes[2]+0x70),worldScale);
+   fput((void*)(nodes[2]+0x7c),anchor+worldScale*raw);
+   fput((void*)(nodes[5]+0x70),worldScale*1.02f);
+   fput((void*)(nodes[5]+0x7c),anchor+worldScale*(raw+centre));
+   r[0]=nodes[6];ui_pane(r,0);
+   r[0]=nodes[2];ui_pane(r,0);
+   float canonical=requestedGap+halfWidth-centre;
+   assert(fabsf(ui_float(nodes[2],0x30)-canonical)<.001f);
+   ui_pane(r,0);ui_pane(r,0);
+   assert(fabsf(ui_float(nodes[2],0x30)-canonical)<.001f);
+   // Same local gap on the left and right; root mirrors the result.
+   assert(fabsf((ui_float(nodes[2],0x30)+centre)/ex-(requestedGap+halfWidth)/ex)<.001f);
+   // Changing mode while open must not apply the conversion a second time.
+   acnh_wide_set_aspect(16.f/9.f);r[0]=up;ui_pane(r,0);r[0]=nodes[2];ui_pane(r,0);
+   assert(fabsf(ui_float(nodes[2],0x30)-canonical)<.001f);
+   acnh_wide_set_aspect(dragAspects[i]);r[0]=up;ui_pane(r,0);
+  }
+ }
+ fput((void*)(nodes[2]+0x30),0);r[0]=nodes[2];ui_pane(r,0);
+ assert(ui_float(nodes[2],0x30)==0);
  // The 740x128 string variant uses the same final replay, not its source.
  fput((void*)(rp+0x54),128);acnh_wide_set_aspect(2622.f/1206.f);
  r[0]=up;ui_pane(r,0);r[0]=rp;ui_pane(r,0);

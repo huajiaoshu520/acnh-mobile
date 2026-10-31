@@ -12,7 +12,7 @@ import argparse,json, ctypes, os, plistlib, re, shutil, subprocess, sys, tempfil
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-MODULE_FILES = ('*.patched.bin', '*.fixups.tsv', '*.gates.tsv', '*.cuts.tsv', '*.obs.tsv', 'nro.tsv')   # what the host reads from the module folder (build_ipa.sh copies the same tables)
+MODULE_FILES = ('*.patched.bin', '*.fixups.tsv', '*.gates.tsv', '*.cuts.tsv', '*.obs.tsv', '*.changed.tsv', 'nro.tsv')   # what the host reads from the module folder (build_ipa.sh copies the same tables)
 TABLES = ('shader_map.tsv', 'pso_manifest.tsv', 'c1_full.tsv', 'cb_extent.tsv')   # read beside DM_NVN_SHMAP; any of them may be absent (a Vulkan or GL game has no c1_full.tsv)
 EXE = 'nxnative'   # the launcher's file name (Contents/MacOS/nxnative)
 ICON_SIZES = (16, 32, 128, 256, 512)

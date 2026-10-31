@@ -43,3 +43,5 @@ void dm_input_sampled_right(int32_t *rx,int32_t *ry);
 
 // Controller state injection point: called after GetNpadState has filled in the original state and before the pseudo-key override. The Mac host touch point script (touch_mac.c, Mac only, kept out of the iOS app by the _mac convention) registers at startup; iOS does not carry that file and it stays empty
 extern void (*dm_pad_hook)(uint64_t now, uint64_t *buttons, int32_t *lx, int32_t *ly, int32_t *rx, int32_t *ry);
+
+uint64_t dm_cheats_keys(void);

@@ -4,6 +4,7 @@ typedef struct {
  uintptr_t key,vtable;int root,valid,shifted,storage_header;
  float sx,last_sx,width,last_width,tx,last_tx,ty,last_ty;
  float sy,last_sy,height,last_height;
+ float action_center,action_correction;
 } acnh_ui_record;
 static acnh_ui_record ui_records[4096];
 static pthread_mutex_t ui_mutex=PTHREAD_MUTEX_INITIALIZER;
@@ -21,9 +22,15 @@ static void ui_pane(uint64_t *r,int param) {
  float k=wanted()/(16.f/9.f),ex=fmaxf(1.f,k),ey=fmaxf(1.f,1.f/k);uintptr_t vt=*(uintptr_t*)p-base,parent=*(uintptr_t*)(p+0x18);
  int plain=vt==0x474d1f8||vt==0x4a85590,parts=vt==0x474d310;
  int picture=vt==0x474d418||vt==0x474de58||vt==0x4a87220;
+ // Capture replays use their own Picture subclass in the live game.
+ // Keep this type scoped to name balloons; it also draws unrelated UI captures.
+ int capture_picture=vt==0x4a86968;
+ const char *pane_name=(const char*)(p+0xb0);
+ int balloon_text=parent&&!strcmp(pane_name,"T_Name_00")&&
+  !strcmp((const char*)(parent+0xb0),"N_Rotate_00");
  int cursor=vt==0x4a8f128&&!strcmp((const char*)(p+0xb0),"L_Cursor_00");
  int pocket_drag=(parts||vt==0x4a8f128)&&!strcmp((const char*)(p+0xb0),"L_DragBtn_00");
- if(parent&&!plain&&!parts&&!picture&&!cursor&&!pocket_drag)return;
+ if(parent&&!plain&&!parts&&!picture&&!capture_picture&&!balloon_text&&!cursor&&!pocket_drag)return;
  pthread_mutex_lock(&ui_mutex);
  if(!parent){
   acnh_ui_record *c=ui_record(p,fabsf(k-1.f)>.001f);if(!c){pthread_mutex_unlock(&ui_mutex);return;}
@@ -43,7 +50,7 @@ static void ui_pane(uint64_t *r,int param) {
  uintptr_t top=parent;int nested=0,pocket_balloon=0;
  for(int n=0;n<32;n++){
   acnh_ui_record *a=ui_record(top,0);if(a&&a->shifted)nested=1;
-  if(*(uintptr_t*)top==base+0x4a8f128&&!strcmp((const char*)(top+0xb0),"L_ItemBalloon_00"))pocket_balloon=1;
+  if(!strcmp((const char*)(top+0xb0),"L_ItemBalloon_00"))pocket_balloon=1;
   uintptr_t next=*(uintptr_t*)(top+0x18);if(!next)break;top=next;
  }
  acnh_ui_record *root=ui_record(top,0);if(!root||!root->root){pthread_mutex_unlock(&ui_mutex);return;}
@@ -58,7 +65,13 @@ static void ui_pane(uint64_t *r,int param) {
  // children keep their original scale and local offsets.
  int drag_target=pocket_drag&&!strcmp((const char*)(parent+0xb0),"N_Main_00")&&
   *(uintptr_t*)(parent+0x18)==top;
- if((cursor&&parent==top)||drag_target){
+ // MenuRecipe puts the same world-targeted cursor under N_InOut_01,
+ // unlike Storage's direct-root cursor. Its entry container still inherits
+ // root scaling, so undo that extra conversion here as well. Retain the
+ // container animation and cursor icon scale.
+ int recipe_cursor=cursor&&!strcmp((char*)(parent+0xb0),"N_InOut_01")&&
+  *(uintptr_t*)(parent+0x18)==top;
+ if((cursor&&parent==top)||recipe_cursor||drag_target){
   acnh_ui_record *c=ui_record(p,fabsf(k-1.f)>.001f);
   if(c){
    float tx=ui_float(p,0x30),ty=ui_float(p,0x34);
@@ -69,34 +82,83 @@ static void ui_pane(uint64_t *r,int param) {
   }
   pthread_mutex_unlock(&ui_mutex);return;
  }
- // CmnSubWin supplies an already transformed root anchor when opened.
- // Keep its local N_TypeH_00 offsets unchanged: translating that branch
- // again moves the action balloon onto the selected item.
- if(picture){
-  float w=ui_float(p,0x50),h=ui_float(p,0x54),H=root->height;
-  // WipeCircle uses two inner-edge-anchored black side panels rather than
-  // one full-screen picture. Extend only their outer edges; the circle,
-  // animation and its aspect must remain unchanged.
-  const char *name=(const char*)(p+0xb0);
-  // LPocketBalloon replays a 740x148 offscreen capture through a parts
-  // pane whose world matrix deliberately ignores the menu root's scale.
-  // Apply both phone X and tablet Y compensation to the final replay.
-  // The capture already contains the bubble and glyphs: changing source
-  // text or the parts container too would apply the correction twice.
-  int replay=!strcmp(name,"P_Cap_00")||
-   (!strcmp(name,"P_Capture_00")&&!strcmp((const char*)(parent+0xb0),"N_Capture_01"));
-  if(pocket_balloon&&replay&&fabsf(w-740.f)<.01f&&
-   (fabsf(h-148.f)<.01f||fabsf(h-128.f)<.01f)){
-   acnh_ui_record *c=ui_record(p,fabsf(k-1.f)>.001f);
-   if(c){
-    float sx=ui_float(p,0x48),sy=ui_float(p,0x4c);
-    if(!c->valid||sx!=c->last_sx)c->sx=sx;
-    if(!c->valid||sy!=c->last_sy)c->sy=sy;
-    c->last_sx=c->sx/ex;c->last_sy=c->sy/ey;
-    ui_write(p,0x48,c->last_sx);ui_write(p,0x4c,c->last_sy);c->valid=1;
+ // CmnSubWin measures N_Size's transformed centre, but subtracts its
+ // unscaled half-width and requested gap before assigning a local offset.
+ // Capture the centre relative to N_InOut (including its entry animation)
+ // so that the mixed-space subtraction can be converted back once. The
+ // mirrored N_Re branch gives the same local centre for either row edge.
+ if(plain&&!strcmp(pane_name,"N_Size_00")&&
+    !strcmp((const char*)(parent+0xb0),"N_All_00")){
+  uintptr_t in=*(uintptr_t*)(parent+0x18);
+  uintptr_t buttons=in?*(uintptr_t*)(in+0x18):0;
+  uintptr_t out=buttons?*(uintptr_t*)(buttons+0x18):0;
+  uintptr_t mirror=out?*(uintptr_t*)(out+0x18):0;
+  uintptr_t type=mirror?*(uintptr_t*)(mirror+0x18):0;
+  if(in&&buttons&&out&&mirror&&type&&
+     !strcmp((char*)(in+0xb0),"N_In_00")&&
+     !strncmp((char*)(buttons+0xb0),"N_BtnNum_",9)&&
+     !strcmp((char*)(out+0xb0),"N_InOut_00")&&
+     !strcmp((char*)(mirror+0xb0),"N_Re_00")&&
+     !strcmp((char*)(type+0xb0),"N_TypeH_00")&&
+     *(uintptr_t*)(type+0x18)==top){
+   float scale=ui_float(out,0x70);
+   if(isfinite(scale)&&fabsf(scale)>1e-5f){
+    float x=ui_float(parent,0x7c)+ui_float(parent,0x70)*ui_float(p,0x30);
+    float centre=(x-ui_float(out,0x7c))/scale;
+    acnh_ui_record *c=ui_record(out,1);
+    if(c&&isfinite(centre)&&centre>1.f)c->action_center=centre;
+   }
+  }
+ }
+ if(plain&&!strcmp(pane_name,"N_InOut_00")&&
+    !strcmp((char*)(parent+0xb0),"N_Re_00")){
+  uintptr_t type=*(uintptr_t*)(parent+0x18);
+  if(type&&!strcmp((char*)(type+0xb0),"N_TypeH_00")&&
+     *(uintptr_t*)(type+0x18)==top){
+   acnh_ui_record *c=ui_record(p,0);
+   if(c&&c->action_center>1.f){
+    float tx=ui_float(p,0x30);
+    if(!c->valid||tx!=c->last_tx){
+     c->tx=tx;
+     // A zero offset is the game's reset/no-gap case, not a measured gap.
+     c->action_correction=fabsf(tx)>1e-5f?c->action_center*(1.f-1.f/ex):0.f;
+    }
+    c->last_tx=c->tx-c->action_correction;
+    ui_write(p,0x30,c->last_tx);c->valid=1;
    }
    pthread_mutex_unlock(&ui_mutex);return;
   }
+ }
+ // LPocketBalloon draws its background capture and text separately.
+ // P_Capture_00 is an intermediate capture: scaling it as well as the
+ // final P_Cap_00 applies the correction twice. Text uses its own matrix,
+ // so compensate it independently, preserving the original font resource.
+ int balloon_replay=(picture||capture_picture)&&!strcmp(pane_name,"P_Cap_00");
+ if(pocket_balloon&&(balloon_replay||balloon_text)){
+  acnh_ui_record *c=ui_record(p,fabsf(k-1.f)>.001f);
+  if(c){
+   float sx=ui_float(p,0x48),sy=ui_float(p,0x4c),ty=ui_float(p,0x34);
+   if(!c->valid||sx!=c->last_sx)c->sx=sx;
+   if(!c->valid||sy!=c->last_sy)c->sy=sy;
+   if(!c->valid||ty!=c->last_ty)c->ty=ty;
+   c->last_sx=c->sx/ex;c->last_sy=c->sy/ey;
+   ui_write(p,0x48,c->last_sx);ui_write(p,0x4c,c->last_sy);
+   // LPocketBalloon places captured glyphs 1952 units below the visible
+   // name (100-1952=-1852 in its original layout). The capture renderer
+   // rebases that lane separately from the root transform. Restore the
+   // lost lane distance in its source coordinates when extending vertically,
+   // or tablet text lands below its bubble.
+   c->last_ty=c->ty;
+   if(balloon_text&&c->ty<-1000.f)c->last_ty+=1952.f*(1.f-1.f/ey);
+   if(balloon_text)ui_write(p,0x34,c->last_ty);
+   c->valid=1;
+  }
+  pthread_mutex_unlock(&ui_mutex);return;
+ }
+ if(picture||capture_picture){
+  if(capture_picture){pthread_mutex_unlock(&ui_mutex);return;}
+  float w=ui_float(p,0x50),h=ui_float(p,0x54),H=root->height;
+  const char *name=pane_name;
   unsigned origin=(*(uint8_t*)(p+0x5b))&3;
   int side=(!strncmp(name,"P_L_",4)&&origin==2)||(!strncmp(name,"P_R_",4)&&origin==1);
   if(side&&!strncmp((const char*)(parent+0xb0),"P_Circle_",9)&&isfinite(w)&&isfinite(h)&&w>=0&&h>0){
@@ -138,9 +200,24 @@ static void ui_pane(uint64_t *r,int param) {
   // Widen the background meshes only; do not stretch menu contents.
   acnh_ui_record *band=ui_record(p,0);
   float band_width=band&&band->valid&&w==band->last_width?band->width:w;
-  int terminal_band=!strncmp(name,"P_pict_",7)&&strlen(name)==9&&
-   name[7]>='0'&&name[7]<='9'&&name[8]>='0'&&name[8]<='9'&&
-   !strncmp((const char*)(parent+0xb0),"N_InOut_",8)&&
+  const char *band_parent=(const char*)(parent+0xb0);
+  uintptr_t band_grand=*(uintptr_t*)(parent+0x18);
+  int pict_name=!strncmp(name,"P_pict_",7)&&strlen(name)==9&&
+   name[7]>='0'&&name[7]<='9'&&name[8]>='0'&&name[8]<='9';
+  int bg_name=!strncmp(name,"P_BG_",5)&&strlen(name)==7&&
+   name[5]>='0'&&name[5]<='9'&&name[6]>='0'&&name[6]<='9';
+  // Catalog/NatteeCatalog exit curtains have a 320-high outer picture
+  // and a 500/430-high child. Width is mesh geometry, not child scale:
+  // widening the parent alone leaves the animated child at 16:9.
+  int direct_band=!strncmp(band_parent,"N_InOut_",8);
+  acnh_ui_record *parent_band=ui_record(parent,0);
+  float parent_width=ui_float(parent,0x50);
+  if(parent_band&&parent_band->valid&&parent_width==parent_band->last_width)parent_width=parent_band->width;
+  int nested_band=band_grand&&!strncmp((const char*)(band_grand+0xb0),"N_InOut_",8)&&
+   (!strncmp(band_parent,"P_pict_",7)||!strncmp(band_parent,"P_BG_",5))&&
+   fabsf(parent_width-1920.f)<.01f&&fabsf(ui_float(parent,0x54)-320.f)<.01f;
+  int terminal_band=(pict_name||(bg_name&&fabsf(h-320.f)<.01f))&&
+   (direct_band||(pict_name&&nested_band&&(fabsf(h-430.f)<.01f||fabsf(h-500.f)<.01f)))&&
    fabsf(band_width-1920.f)<.01f&&
    (fabsf(h-320.f)<.01f||fabsf(h-430.f)<.01f||fabsf(h-500.f)<.01f);
   if(terminal_band){

@@ -80,7 +80,9 @@ static UILabel *front_ios_fps_label(void);
 - (void)layoutSubviews {
     [super layoutSubviews];
     CAMetalLayer *l = (CAMetalLayer *)self.layer;
-    l.contentsScale = acnh_view_display_scale(self);
+    CGFloat scale=acnh_view_display_scale(self);
+    if(self.window.windowScene.session.role==UIWindowSceneSessionRoleExternalDisplayNonInteractive || [self.window.windowScene.session.role isEqualToString:UIWindowSceneSessionRoleExternalDisplayNonInteractive]) scale=MIN(scale,1920.0/MAX(self.bounds.size.width,1));
+    l.contentsScale = scale;
     CGSize pixels=CGSizeMake(self.bounds.size.width*l.contentsScale,self.bounds.size.height*l.contentsScale);
     // Metal renders the original aspect; Core Animation scales it into the selected view.
     if(self.stretchPicture)pixels=acnh_fit_game(CGRectMake(0,0,pixels.width,pixels.height)).size;
@@ -88,6 +90,10 @@ static UILabel *front_ios_fps_label(void);
     if(!CGSizeEqualToSize(l.drawableSize,pixels))l.drawableSize=pixels;
 }
 @end
+
+static CGRect fit_16_9(CGRect b) { return acnh_fit_game(b); }
+static void tv_attach(void);
+static BOOL tv_active(void);
 
 @interface DmRootVC : UIViewController
 @property (nonatomic, strong) DmGameView *game;
@@ -98,6 +104,7 @@ static UILabel *front_ios_fps_label(void);
 @property (nonatomic,strong) UILabel *loadLabel;
 @property (nonatomic) BOOL preparing;
 @property (nonatomic) BOOL launched;
+@property (nonatomic,strong) id tv;
 - (void)startGame;
 @end
 static DmRootVC *g_root;
@@ -108,6 +115,13 @@ static void launcher_done(void) { [g_root startGame]; }
     self.view.backgroundColor = UIColor.blackColor;
     acnh_observe_display(self.view);
     front_ios_power_watch();
+#if defined(__IPHONE_27_0)
+    if (@available(iOS 27.0, *)) {
+        UISceneConfiguration *c = [[UISceneConfiguration alloc] initWithName:@"TV" sessionRole:UIWindowSceneSessionRoleExternalDisplayNonInteractive];
+        c.delegateClass = NSClassFromString(@"DmTVSceneDelegate");
+        self.tv = [self registerSceneAccessory:[UISceneAccessory externalNonInteractiveSceneAccessoryWithConfiguration:c]];
+    }
+#endif
     self.loadLabel=[[UILabel alloc] initWithFrame:CGRectInset(self.view.bounds,40,40)];
     self.loadLabel.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
     self.loadLabel.numberOfLines=0;self.loadLabel.textAlignment=NSTextAlignmentCenter;self.loadLabel.textColor=UIColor.whiteColor;
@@ -121,6 +135,7 @@ static void launcher_done(void) { [g_root startGame]; }
     [self setupGame];
     [self.view setNeedsLayout];[self.view layoutIfNeeded];
     UIApplication.sharedApplication.idleTimerDisabled=YES;
+    tv_attach();
     front_ios_boot();
 }
 - (void)setupGame {
@@ -145,6 +160,12 @@ static void launcher_done(void) { [g_root startGame]; }
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
     if (!self.game) return;
+    if(tv_active()) {
+        self.pad.frame=acnh_pad_frame(self.view);
+        self.miniMap.hidden=YES;atomic_store(&g_minimap_enabled,0);
+        acnh_wide_set_aspect(16.f/9.f);acnh_wide_set_present_full(0);
+        return;
+    }
     CGRect previous=self.pad.frame;
     CGRect viewport=acnh_game_viewport(self.view);
     self.gameContainer.frame=viewport;
@@ -216,6 +237,48 @@ static void launcher_done(void) { [g_root startGame]; }
 - (UIInterfaceOrientationMask)supportedInterfaceOrientations { return acnh_has_hinge(self.view)?UIInterfaceOrientationMaskAllButUpsideDown:UIInterfaceOrientationMaskLandscape; }
 @end
 UIViewController *front_ios_root(void) { return [DmRootVC new]; }
+
+// A TV (cable or AirPlay): iOS gives the app the TV as a scene of its own instead of mirroring the phone. The game's view moves there, 16:9 fills the TV, and the game is
+// docked as a Switch on its dock (1080p, the operation mode change notification); the phone keeps the pad. Unplugging puts the view back and the mode the game had before
+@interface DmTVVC : UIViewController
+@end
+@implementation DmTVVC
+- (void)viewDidLoad { [super viewDidLoad]; self.view.backgroundColor = UIColor.blackColor; }
+- (void)viewDidLayoutSubviews { [super viewDidLayoutSubviews]; for (UIView *v in self.view.subviews) v.frame = fit_16_9(self.view.bounds); }
+@end
+static UIWindow *g_tv; static int g_tv_mode_was = -1;
+static BOOL tv_active(void) { return g_tv && g_root.game.superview==g_tv.rootViewController.view; }
+static void tv_attach(void) {
+    DmGameView *v = g_root.game; if (!g_tv || !v || v.superview == g_tv.rootViewController.view) return;
+    [g_tv.rootViewController.view addSubview:v]; [g_tv.rootViewController.view setNeedsLayout];
+    acnh_wide_set_aspect(16.f/9.f);acnh_wide_set_present_full(0);
+    [g_root.view setNeedsLayout];
+    // at most 1080p: the game renders 1080p docked, and a 4K drawable only adds an upscale and a 4K stream (an AirPlay TV showed black, the GPU went from 15 to 60 ms a frame).
+    // Taken from the 16:9 picture, not the screen, so a display of another shape still gets the full 1920 pixels across the picture
+    CGRect f = fit_16_9(g_tv.bounds);
+    v.layer.contentsScale = MIN(v.layer.contentsScale, 1920.0 / MAX(f.size.width, 1)); [v setNeedsLayout];
+    if (g_tv_mode_was < 0) g_tv_mode_was = dm_opmode();
+    dm_set_opmode(1);
+    LOG("front end: TV connected (%.0fx%.0f points), the picture moves there at %.0fx%.0f, console mode", g_tv.bounds.size.width, g_tv.bounds.size.height, f.size.width * v.layer.contentsScale, f.size.height * v.layer.contentsScale);
+}
+static void tv_detach(void) {
+    DmGameView *v = g_root.game; g_tv = nil;
+    if (v && v.superview != g_root.gameContainer) { [g_root.gameContainer addSubview:v]; [g_root.view setNeedsLayout]; }
+    if (g_tv_mode_was >= 0) { dm_set_opmode(g_tv_mode_was); g_tv_mode_was = -1; }
+    LOG("front end: TV disconnected, the picture is back on the phone");
+}
+@interface DmTVSceneDelegate : UIResponder <UIWindowSceneDelegate>
+@property (strong, nonatomic) UIWindow *window;
+@end
+@implementation DmTVSceneDelegate
+- (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)o {
+    self.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
+    self.window.rootViewController = [DmTVVC new];
+    self.window.hidden = NO;   // without a window iOS goes on mirroring the phone; not key, so the phone's window keeps the keyboard
+    g_tv = self.window; tv_attach();
+}
+- (void)sceneDidDisconnect:(UIScene *)s { if (g_tv == self.window) tv_detach(); self.window = nil; }
+@end
 
 // Thermal state and screen brightness for the power and present rows every 300 frames (hle_nvn.c; its weak defaults return -1 on the Mac). thermalState: 0 nominal, 1 fair, 2 serious, 3 critical.
 // Brightness is read on the main thread at start and on each change; every change of the thermal state and of Low Power Mode (which lowers the CPU clock) is logged with the time since launch

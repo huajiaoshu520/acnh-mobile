@@ -1,3 +1,4 @@
+#include "pad_apple.h"
 // ACNH icon controls: dual sticks, separate tool D-pad, phone and reactions on the right.
 #import <UIKit/UIKit.h>
 #import <GameController/GameController.h>
@@ -302,9 +303,9 @@ static int32_t axis(float v) { return (int32_t)(fmaxf(-1.f, fminf(1.f, v)) * 327
 static void read_pad(GCExtendedGamepad *g) {
     int p = g_merge ? 0 : pad_slot_of(&g_slots, (__bridge const void *)g.controller); if (p < 0) return;
     dm_haptics_apple_controller(p, g.controller);
-    uint64_t m = 0;
+    _Static_assert(DM_BTN_A == 1u << B_A && DM_BTN_B == 1u << B_B && DM_BTN_X == 1u << B_X && DM_BTN_Y == 1u << B_Y, "face button bits");
+    uint64_t m = dm_pad_face(g);   // by position, a Nintendo pad by its labels
     #define K(btn, bit) if (btn.isPressed) m |= 1ull << bit
-    K(g.buttonB, B_A); K(g.buttonA, B_B); K(g.buttonY, B_X); K(g.buttonX, B_Y);   // by position: right A, bottom B, top X, left Y
     K(g.leftShoulder, B_L); K(g.rightShoulder, B_R); K(g.leftTrigger, B_ZL); K(g.rightTrigger, B_ZR);
     K(g.buttonMenu, B_PLUS); if (g.buttonOptions) K(g.buttonOptions, B_MINUS);
     if (g.leftThumbstickButton) K(g.leftThumbstickButton, B_LS); if (g.rightThumbstickButton) K(g.rightThumbstickButton, B_RS);

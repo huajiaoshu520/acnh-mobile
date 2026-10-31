@@ -1,10 +1,10 @@
 # ACNH Mobile
 
-**0.3.74 · build 83 — official Metal 4 edition, iOS 26+.**
+**0.3.81 · build 90 — official Metal 4 edition, iOS 26+.**
 
 Optional iCloud Drive save sharing is available in the iPhone and Mac launchers; choose the same folder on both devices. Replaced saves are backed up locally.
 
-Experimental same-Wi-Fi local networking is included as an ACNH-only patch. LiveContainer + SideStore users must update to the LAN-enabled host attached to this release and allow local network access. [Release notes](docs/RELEASE-v0.3.74.zh-CN.md).
+Experimental same-Wi-Fi local networking is included as an ACNH-only patch. LiveContainer + SideStore users must update to the LAN-enabled host attached to this release and allow local network access. [Release notes](docs/RELEASE-v0.3.81.zh-CN.md).
 A native compatibility runtime for Animal Crossing: New Horizons 3.0.3. The runtime and shader translation sources are based on [NXNative](https://github.com/seedds/nxnative) commit `e72a06510e6dfff4a77c49fd205a82e21cad0786`.
 
 This edition uses the official Metal 4 replay path and matching shader chain. It retains ACNH's icon touch controls, tool wheel, physical controllers, R/field-triggered Chinese text input, direct external `.data` access, transactional saves, amiibo file import, Photos export and bounded haptics. Custom touch layouts can be edited from startup settings; there is no added in-game typing toolbar.
@@ -18,6 +18,8 @@ Adaptive expanded view preserves horizontal FOV and reveals more vertical scener
 [Releases](https://github.com/huajiaoshu520/acnh-mobile/releases) contains an **unsigned, game-free shell IPA**, audit report and SHA256 checksums. It contains no game program, game data, translated game shaders, keys, saves or fonts. The project app icon is the sole artwork exception. A shell alone cannot play the game; importing `.data` alone is insufficient.
 
 Use an Apple Silicon Mac and your own rewritten 3.0.3 modules, complete matching official iOS shader cache, RomFS and font to generate a private IPA. Sign the entire resulting package, including Guest.framework when using shell assembly. Do not upload private, game-containing IPA files.
+
+Build 90 adds optional external TV/AirPlay output, Atmosphère cheat-file support and physical-input recording/replay, plus official residency, memory-protection, controller mapping, audio and cloud-fetch fixes. Device testing of TV/AirPlay remains pending. See [update details](docs/RELEASE-v0.3.81.en.md).
 
 ## Existing build interface
 

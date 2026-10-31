@@ -52,6 +52,7 @@ for i, (fo, mo, sz) in enumerate(segs):
     if flags >> i & 1: raw = lz4.block.decompress(raw, uncompressed_size=sz)
     IMG[mo:mo + sz] = raw
 TEXT_END = segs[0][2]
+ORIG_TEXT = bytes(IMG[:TEXT_END])
 RO_OFF, DATA_OFF = segs[1][1], segs[2][1]
 if FAR:
     FILE_IMAGE_LEN = (len(IMG) + 0x3FFF) & ~0x3FFF
@@ -1208,6 +1209,28 @@ with open(P('sites.tsv'), 'w') as f:
 with open(P('cuts.tsv'), 'w') as f:
     f.write(f'# BUILD_ID\t{BUILD_ID}\n')
     for off, ob, nb, why in cuts: f.write(f'{off:#x}\t{ob}\t{nb}\t{why}\n')   # Columns: offset, original bytes, new bytes, reason
+# The text words whose instructions no longer run as the file has them: every word this rewriter changed (sites, cuts, lock
+# acquires, jump tables), the windows whose copies in the patch area run instead, and the spin waits' instructions, which run
+# from their copies after the first pass. Runs of offset and length; the host's cheat engine refuses a write into any of them
+# (hle_cheats.c main_write_pages: a cheat's instruction there would undo a site or never run)
+def changed_runs():
+    words = set()
+    for o in range(0, TEXT_END, 0x1000):   # whole blocks first: almost all of the text is unchanged
+        if IMG[o:o + 0x1000] != ORIG_TEXT[o:o + 0x1000]:
+            words.update(w for w in range(o, min(o + 0x1000, TEXT_END), 4) if IMG[w:w + 4] != ORIG_TEXT[w:w + 4])
+    for wseg in windows: words.update(range(wseg[0].address, wseg[-1].address + 4, 4))
+    for g in spin_regions:
+        for a in g['R']:
+            n = g['nodes'][a]; pre = n.get('pre', 0)
+            words.update(a + 4 * (i - pre) for i in range(len(n['ins'])))
+    runs = []
+    for w in sorted(words):
+        if runs and runs[-1][0] + runs[-1][1] == w: runs[-1][1] += 4
+        else: runs.append([w, 4])
+    return runs
+with open(P('changed.tsv'), 'w') as f:
+    f.write(f'# BUILD_ID\t{BUILD_ID}\n')
+    for off, n in changed_runs(): f.write(f'{off:#x}\t{n:#x}\n')   # Columns: offset, length in bytes
 with open(P('obs.tsv'), 'w') as f:
     f.write(f'# BUILD_ID\t{BUILD_ID}\n')
     for off, oid, ow, why in obs: f.write(f'{off:#x}\t{oid}\t{ow}\t{why}\n')

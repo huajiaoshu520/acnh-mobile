@@ -45,6 +45,8 @@ typedef struct { const char *name; void *fn; const char *why; } hle_force_ent;
             "    adrp x16, _" #cname "@PAGE\n    add x16, x16, _" #cname "@PAGEOFF\n    b _dm_bigstack_enter\n"); \
     __attribute__((used, section("__DATA,swforce"))) static const hle_force_ent hle_force_##cname = {mangled, (void *)(uintptr_t)cname##_bs, why}; \
     static ret cname(__VA_ARGS__)
+// The game's call site inside a HLE_FORCE_BIG implementation: pass __builtin_return_address(0), which after a stack switch is the entry's own (hle_bigstack.c)
+void *dm_bigstack_caller(void *ra);
 
 // Operation mode (0 handheld / 1 docked): owned by hle_oe.c, and the hid controller style follows it; the front end can switch it at runtime
 int dm_opmode(void);
@@ -56,3 +58,8 @@ extern uint8_t *dm_fps_state;   // frame step state page (loader.c install_fps_s
 void dm_audio_suspend(int on);
 uint64_t dm_audio_render_calls(void);   // Cumulative sound card callback count (the silent sink is not counted)
 void dm_audio_reset(void);   // iOS media services reset: recreate the AudioUnits (hle_audio.c)
+
+void dm_applet_enter(const char *name);
+void dm_applet_leave(void);
+static inline void dm_applet_leave_(const char *const *name) { (void)name; dm_applet_leave(); }
+#define DM_APPLET(name) const char *const dm_applet_ __attribute__((cleanup(dm_applet_leave_))) = (name); dm_applet_enter(dm_applet_)

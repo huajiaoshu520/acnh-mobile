@@ -231,3 +231,6 @@ t_sparse_layout: t_sparse_layout.c ../nvn/nvn_tex.c
 
 t_alpha: t_alpha.m $(MTL_T_DEP)
 	clang $(CFLAGS) -fobjc-arc -o $@ t_alpha.m $(MTL_T_SRC) $(FW)
+
+t_dirty_retire_race: t_dirty_retire_race.c ../nvn/nvn_dirty.c ../../host/crash.c ../nvn/nvn_dirty.h
+	clang $(CFLAGS) -o $@ t_dirty_retire_race.c ../../host/crash.c
