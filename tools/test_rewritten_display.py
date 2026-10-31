@@ -9,7 +9,9 @@ class RewrittenDisplayTests(unittest.TestCase):
             p.write_text('# BUILD_ID\t'+BUILD+'\n')
             with self.assertRaisesRegex(ValueError, '版本过旧'):
                 validate_display_observations(tmp)
-            p.write_text(p.read_text()+'0x37e5968\t26\tbd409800\tprojection\n0x27d4c0\t28\tfc1b0fe8\tlayout\n')
+            p.write_text(p.read_text()+'0x37e5968\t32\tbd409800\tprojection\n0x27d4c0\t33\tfc1b0fe8\tlayout\n')
+            with self.assertRaises(ValueError): validate_display_observations(tmp)  # display-only modules lack LAN diagnostics
+            p.write_text(p.read_text()+'0x1296c4\t290\td10143ff\tLAN copy\n0x129780\t546\td10143ff\tLAN propagation\n')
             validate_display_observations(tmp)
             p.write_text(p.read_text().replace('fc1b0fe8','00000000'))
             with self.assertRaises(ValueError): validate_display_observations(tmp)

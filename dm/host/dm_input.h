@@ -13,8 +13,12 @@ enum {
 #define DM_STICK_MAX 32767
 void dm_input_set(uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t ry);
 uint64_t dm_input_samples(void);   // Cumulative number of times the game has sampled the controller
-// Physical controller path (Mac GameController, DM_KEYS / DM_CTL): stored separately from the keyboard / touch input; when the game reads player 1, buttons are
-// ORed bitwise and each stick axis takes whichever source is deflected more. All 0 when no controller is connected, so values are bit-for-bit the same as before.
+// The cheat VM's key mask (hle_cheats.c): every input source's button bits (0..15 in the enum above) ORed and the
+// merged axes' eight stick-direction bits (16..23), one flat bitset; no latches are consumed (the game's own reads
+// keep them). The NpadButton SL / SR bits (24 / 25) never fire: no input source of this host reports them
+uint64_t dm_cheats_keys(void);
+// Physical controller path (Mac / iOS GameController): stored separately from keyboard / touch and scripted input (DM_KEYS / DM_CTL); when the game reads player 1,
+// buttons are ORed bitwise and each stick axis takes whichever source is deflected more. All 0 when no controller is connected.
 // dm_pad_set is player 1's controller (DM_BTN_SHAKE counts there only); dm_pad_set_player sets player n + 1's, which the game reads on its own npad (hle_hid.c) while
 // dm_pad_players has its bit set; a player whose npad the game does not support (SetSupportedNpadIdType) feeds player 1 instead, so a one-player game sees every controller
 #define DM_PLAYERS 8   // npads No1..No8; player 1 is the Handheld npad in handheld mode (DM_OPMODE=0)

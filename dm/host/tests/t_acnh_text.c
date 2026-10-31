@@ -2,7 +2,7 @@
 #include <assert.h>
 static uint64_t tick;
 uint64_t now_ns(void){return tick;}
-module_t g_mod[MAX_MOD];int g_nmod=1;
+static module_t modules[1];module_t *g_mod=modules;int g_nmod=1;
 void *guest_sym(const char *name){(void)name;return NULL;}
 int main(void){
  strcpy(g_mod[0].name,"main");strcpy(g_mod[0].build_id,"ff1d1c05670db6021c85b624a710b963");

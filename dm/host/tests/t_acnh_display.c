@@ -2,17 +2,17 @@
 #include <math.h>
 #include "../../gfx/nvn/acnh_present_math.h"
 #include "../hle_acnh_wide.c"
-module_t g_mod[MAX_MOD];int g_nmod;
-void gate_obs_set(int id,void(*fn)(uint64_t*,int)){assert(id==26||id==28);(void)fn;}
+static module_t modules[1];module_t *g_mod=modules;int g_nmod;
+void gate_obs_set(int id,void(*fn)(uint64_t*,int)){assert(id==32||id==33);(void)fn;}
 int main(void){
  g_nmod=1;strcpy(g_mod[0].name,"main");strcpy(g_mod[0].build_id,"ff1d1c05670db6021c85b624a710b963");g_mod[0].base=(void*)0x100000000ull;
- uint64_t obj[32]={0},r[102]={0};uintptr_t p=(uintptr_t)obj,base=(uintptr_t)g_mod[0].base;r[0]=p;r[101]=base+0x1000;obj[0]=base+0x4a65608;
+ uint64_t obj[32]={0},r[102]={0},guest_frame[2]={0};r[99]=(uintptr_t)guest_frame;uintptr_t p=(uintptr_t)obj,base=(uintptr_t)g_mod[0].base;r[0]=p;guest_frame[1]=base+0x1000;obj[0]=base+0x4a65608;
  fput((void*)(p+0xa0),.384f);fput((void*)(p+0xb0),16.f/9.f);acnh_wide_set_aspect(2868.f/1320.f);perspective(r,0);
  assert(fabsf(fget((void*)(p+0xb0))-2868.f/1320.f)<1e-6f);assert(fget((void*)(p+0xa0))==.384f);
  float a=fget((void*)(p+0xb0));perspective(r,0);assert(fget((void*)(p+0xb0))==a);
  float sx=(1320*a)/(a*tanf(.384f/2)),sy=1320/tanf(.384f/2);assert(fabsf(sx-sy)<.002f);
- fput((void*)(p+0xb0),16.f/9.f);r[101]=base+0x376d224;perspective(r,0);assert(fget((void*)(p+0xb0))==16.f/9.f);
- r[101]=base+0x1000;fput((void*)(p+0xb0),1.f);perspective(r,0);assert(fget((void*)(p+0xb0))==1.f);
+ fput((void*)(p+0xb0),16.f/9.f);guest_frame[1]=base+0x376d224;perspective(r,0);assert(fget((void*)(p+0xb0))==16.f/9.f);
+ guest_frame[1]=base+0x1000;fput((void*)(p+0xb0),1.f);perspective(r,0);assert(fget((void*)(p+0xb0))==1.f);
  acnh_wide_set_aspect(NAN);assert(wanted()==16.f/9.f);
  double rect[4],native_aspect=2868./1320.;
  acnh_present_rect(2868,1320,1280,720,0,rect);
@@ -44,7 +44,7 @@ int main(void){
  const float tablets[]={4.f/3.f,2360.f/1640.f,2266.f/1488.f};
  for(unsigned i=0;i<sizeof tablets/sizeof *tablets;i++){
   float target=tablets[i],baseFov=.384f;acnh_wide_set_aspect(target);
-  r[0]=p;r[101]=base+0x1000;fput((void*)(p+0xb0),16.f/9.f);fput((void*)(p+0xa0),baseFov);perspective(r,0);
+  r[0]=p;guest_frame[1]=base+0x1000;fput((void*)(p+0xb0),16.f/9.f);fput((void*)(p+0xa0),baseFov);perspective(r,0);
   float fy=fget((void*)(p+0xa0));assert(fy>baseFov&&fabsf(fget((void*)(p+0xb0))-target)<1e-6);
   assert(fabsf(tanf(fy/2)*target-tanf(baseFov/2)*(16.f/9.f))<1e-6);
   float px=target/(target*tanf(fy/2)),py=1.f/tanf(fy/2);assert(fabsf(px-py)<1e-6);

@@ -1,3 +1,4 @@
 lz4>=4.3
 capstone>=5
 fonttools>=4.50
+nsz>=4.6.1

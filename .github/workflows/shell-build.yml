@@ -50,6 +50,8 @@ jobs:
           with open(os.environ['GITHUB_ENV'],'a') as f:
               f.write('RELEASE_TAG='+tag+'\nAPP_VERSION='+v['version']+'\nAPP_BUILD='+str(v['build'])+'\n')
           PY
+      - name: Prepare pinned generic regression fixtures
+        run: python tools/test_reference.py
       - name: Audit source and test packaging
         run: |
           python tools/audit_release.py .
@@ -76,6 +78,8 @@ jobs:
           "$RUNNER_TEMP/t-caps-pixels"
           clang -Wall -Wextra -Werror dm/ios/tests/t_adaptive_layout.c -framework CoreGraphics -o "$RUNNER_TEMP/t-adaptive-layout"
           "$RUNNER_TEMP/t-adaptive-layout"
+          clang -fobjc-arc dm/ios/tests/t_device_support.m -framework Foundation -o "$RUNNER_TEMP/t-device-support"
+          "$RUNNER_TEMP/t-device-support"
           clang -Wall -Wextra -Werror dm/ios/tests/t_display_modes.c -framework CoreGraphics -o "$RUNNER_TEMP/t-display-modes"
           "$RUNNER_TEMP/t-display-modes"
           make -s -C dm/host GAME=01006F8002326000 game_profile

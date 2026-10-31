@@ -12,12 +12,13 @@ class LauncherTests(unittest.TestCase):
     def test_acnh_hides_unimplemented_fps_and_scale(self):
         with tempfile.TemporaryDirectory() as t:
             d=settings.build('01006F8002326000',t,Path(t)/'missing.nacp')
-            self.assertEqual({s['env'] for s in d['settings']},{'ACNH_DISPLAY_MODE','DM_PSO_MTL4','DM_PSO_PREBUILD','DM_NVN_ENC_THREAD','DM_FPS_HOLD','DM_PRESENT_SNAP','DM_OPMODE','DM_SHOW_FPS','DM_METAL_HUD','ACNH_CONTROLLER_LAYOUT','ACNH_AUDIO_IGNORE_SILENT','ACNH_CUSTOM_BASE','DM_TOUCH_HAPTICS','DM_RUMBLE','DM_RUMBLE_GAIN'})
+            self.assertEqual({s['env'] for s in d['settings']},{'ACNH_DISPLAY_MODE','DM_PSO_MTL4','DM_PSO_PREBUILD','DM_NVN_ENC_THREAD','DM_PRESENT_UPSCALE','DM_RUMBLE_MIN','DM_PRESENT_SNAP','DM_OPMODE','DM_SHOW_FPS','DM_METAL_HUD','ACNH_CONTROLLER_LAYOUT','ACNH_AUDIO_IGNORE_SILENT','ACNH_CUSTOM_BASE','DM_TOUCH_HAPTICS','DM_RUMBLE','DM_RUMBLE_GAIN'})
     def test_official_performance_defaults_and_typed_toggles(self):
         with tempfile.TemporaryDirectory() as t:
             rows={s['env']:s for s in settings.build('01006F8002326000',t,Path(t)/'missing.nacp')['settings']}
-            self.assertEqual({k:rows[k]['default'] for k in ('DM_PSO_MTL4','DM_PSO_PREBUILD','DM_NVN_ENC_THREAD','DM_FPS_HOLD')},{'DM_PSO_MTL4':'0','DM_PSO_PREBUILD':'1','DM_NVN_ENC_THREAD':'1','DM_FPS_HOLD':'on'})
-            self.assertEqual((rows['DM_FPS_HOLD']['on'],rows['DM_FPS_HOLD']['off']),('on','off'))
+            self.assertEqual({k:rows[k]['default'] for k in ('DM_PSO_MTL4','DM_PSO_PREBUILD','DM_NVN_ENC_THREAD')},{'DM_PSO_MTL4':'0','DM_PSO_PREBUILD':'1','DM_NVN_ENC_THREAD':'1'})
+            self.assertNotIn('DM_FPS_HOLD',rows)  # ACNH has no official frame-step limiter
+            self.assertEqual(rows['DM_PRESENT_UPSCALE']['default'],'off')
             self.assertEqual({s['section'] for s in rows.values()},{'Game','Controls','Performance'})
     def test_picture_modes_are_persistable_choices(self):
         with tempfile.TemporaryDirectory() as t:
@@ -44,6 +45,8 @@ class LauncherTests(unittest.TestCase):
             row=next(s for s in settings.build('01006F8002326000',t,Path(t)/'missing.nacp')['settings'] if s['env']=='ACNH_CUSTOM_BASE')
             self.assertEqual(row['default'],'acnh')
             self.assertEqual(row['options'],[['generic','Generic'],['acnh','Dedicated']])
+            self.assertEqual(row['note'],'')
+            self.assertEqual(row['needs'],'ACNH_CONTROLLER_LAYOUT=custom')
     def test_silent_mode_audio_is_opt_in(self):
         with tempfile.TemporaryDirectory() as t:
             row=next(s for s in settings.build('01006F8002326000',t,Path(t)/'missing.nacp')['settings'] if s['env']=='ACNH_AUDIO_IGNORE_SILENT')

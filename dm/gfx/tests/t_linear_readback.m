@@ -9,7 +9,7 @@
 uint64_t g_t0_ns;
 void *front_metal_layer(void) { return NULL; }
 module_t *module_of(const void *p) { (void)p; return NULL; }
-module_t g_mod[MAX_MOD]; int g_nmod;
+module_t *g_mod; int g_nmod;
 void svc_thread_dump(void) {}
 uint64_t now_ns(void) { return bp_now(); }
 static int cases, failed;
@@ -42,6 +42,32 @@ static void run_case(int format) {
     EXPECT("GPU image writes -> CPU pool map, 14400 literal pixels", 0, bad);
     h_nvnTextureFinalize(&tex); mtl_pool_del(mem); free(mem);
 }
+static void render_target_stride_case(void) {
+    void *mem = NULL; if (posix_memalign(&mem, getpagesize(), 65536)) abort(); memset(mem, 0, 65536);
+    pool_t pool = {.mem=mem, .size=65536, .flags=0x24}; mtl_pool_add(mem, 65536);
+    NVNtextureBuilder tb; NVNtexture tex; h_nvnTextureBuilderSetDefaults(&tb);
+    h_nvnTextureBuilderSetWidth(&tb, 16); h_nvnTextureBuilderSetHeight(&tb, 16);
+    h_nvnTextureBuilderSetFormat(&tb, NVN_FORMAT_RGBA8);
+    h_nvnTextureBuilderSetFlags(&tb, NVN_TEXTURE_FLAGS_LINEAR_RENDER_TARGET);
+    h_nvnTextureBuilderSetStorage(&tb, (const NVNmemoryPool *)&pool, 0);
+    EXPECT("linear target inferred stride storage", 2048, h_nvnTextureBuilderGetStorageSize(&tb));
+    EXPECT("linear target init", 1, h_nvnTextureInitialize(&tex, &tb));
+    id<MTLTexture> t = tex_mtl((const tex_t *)&tex);
+    EXPECT("linear target has buffer backing", 1, t.buffer != nil);
+    EXPECT("linear target inferred row pitch", 128, t.bufferBytesPerRow);
+    id<MTLCommandBuffer> cb = q_cb(); MTLRenderPassDescriptor *pd = [MTLRenderPassDescriptor renderPassDescriptor];
+    pd.colorAttachments[0].texture=t; pd.colorAttachments[0].loadAction=MTLLoadActionClear;
+    pd.colorAttachments[0].storeAction=MTLStoreActionStore; pd.colorAttachments[0].clearColor=MTLClearColorMake(1,0,0,1);
+    [[cb renderCommandEncoderWithDescriptor:pd] endEncoding]; [cb commit]; [cb waitUntilCompleted];
+    EXPECT("linear target clear completed", MTLCommandBufferStatusCompleted, cb.status);
+    static const uint8_t red[]={255,0,0,255}; int bad=0, padding=0;
+    for (int y=0;y<16;y++) {
+        for (int x=0;x<16;x++) bad += memcmp((uint8_t *)mem+y*128+x*4,red,4)!=0;
+        for (int x=64;x<128;x++) padding += ((uint8_t *)mem)[y*128+x]!=0;
+    }
+    EXPECT("linear target clear uses padded rows", 0, bad); EXPECT("linear target leaves row padding alone", 0, padding);
+    h_nvnTextureFinalize(&tex); mtl_pool_del(mem); free(mem);
+}
 static void scaled_copy_case(void) {
     void *mem = NULL; if (posix_memalign(&mem, getpagesize(), 262144)) abort(); memset(mem, 0, 262144);
     pool_t pool = {.mem=mem, .size=262144, .flags=0x24}; mtl_pool_add(mem, 262144);
@@ -69,6 +95,7 @@ static void scaled_copy_case(void) {
     h_nvnTextureFinalize(&dst); mtl_tex_release(&src); mtl_pool_del(mem); free(mem);
 }
 int main(void) { @autoreleasepool { mtl_init(); run_case(NVN_FORMAT_RGBA8); run_case(NVN_FORMAT_RGBA8_SRGB);
+    render_target_stride_case();
     scaled_copy_case();
     printf("LINEAR_READBACK cases=%d failed=%d\n",cases,failed); return failed != 0;
 } }

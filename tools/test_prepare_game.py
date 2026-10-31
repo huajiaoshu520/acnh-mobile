@@ -24,12 +24,12 @@ class PrepareTests(unittest.TestCase):
     def test_dependency_plan_never_installs(self):
         with patch.object(d.shutil,'which',return_value=None),patch.object(d,'available',return_value=False),patch.object(d.subprocess,'run',side_effect=AssertionError('unexpected install')):
             plan=d.ensure(raw=True,plan=True)
-            self.assertTrue(plan['dotnet10']);self.assertIn('spirv-cross',plan['homebrew']);self.assertIn('fonttools',plan['python'])
+            self.assertTrue(plan['dotnet10']);self.assertIn('cmake',plan['homebrew']);self.assertIn('fonttools',plan['python'])
     def test_mac_dependency_plan_does_not_require_xcodegen(self):
         with patch.object(d.shutil,'which',return_value=None),patch.object(d,'available',return_value=False):
             plan=d.ensure(raw=True,plan=True,mac=True)
             self.assertNotIn('xcodegen',plan['homebrew'])
-            self.assertIn('spirv-cross',plan['homebrew'])
+            self.assertIn('cmake',plan['homebrew'])
     def test_translator_preflight_before_extraction(self):
         import subprocess
         with tempfile.TemporaryDirectory() as t:

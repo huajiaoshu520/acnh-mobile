@@ -9,5 +9,6 @@
   "font": null,
   "python": null,
   "output_root": null,
-  "work_root": null
+  "work_root": null,
+  "pso_gpus": null
 }

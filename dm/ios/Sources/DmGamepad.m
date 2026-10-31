@@ -91,7 +91,7 @@ static void pads_start(void);
   _rightKnob=acnhControlOutline(self.layer);_glyph[B_RS]=glyph(_rightKnob,B_RS);
   if(!acnh_pad_editing()){
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(padsChanged:) name:GCControllerDidConnectNotification object:nil];
-  [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(padsChanged:) name:GCControllerDidDisconnectNotification object:nil];pads_start();[self padsChanged:nil]; phone_motion_start();
+  [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(padsChanged:) name:GCControllerDidDisconnectNotification object:nil];pads_start();[self padsChanged:nil]; phone_motion_start(self);
   }
  }
  return self;

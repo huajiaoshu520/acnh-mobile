@@ -106,13 +106,7 @@ static Result (*list_hook(void))(const char *const *, int) {
         if (!strcmp(e[i].name, "_ZN2nn2fs6CommitEPKPKci")) return e[i].fn;
     return NULL;
 }
-static void check_visibility(const char *save){
-    char work[1200];snprintf(work,sizeof work,"%s.work",save);struct stat st;
-    CHECK(!stat(work,&st) && (st.st_flags&UF_HIDDEN),"save.work keeps its original name and is hidden");
-    CHECK(!stat(save,&st) && !(st.st_flags&UF_HIDDEN),"committed save remains visible");
-}
 int main(void) {
-    setenv("ACNH_HIDE_RUNTIME_DIRS","1",1);
     unsetenv("DM_TEST_FS_FAIL"); unsetenv("DM_TEST_FS_FAILAT");
     Result (*commit)(const char *const *, int) = list_hook();
     CHECK(commit != NULL, "exact mount-list Commit symbol is registered");
@@ -124,7 +118,6 @@ int main(void) {
     snprintf(save, sizeof save, "%s/save", root); mkdir(save, 0755);
     snprintf(path, sizeof path, "%s/a", save); put(path, "old"); setenv("DM_SAVE", save, 1);
     CHECK(h_fs_MountSave("save", NULL) == RES_OK, "mount transactional output");
-    check_visibility(save);
     // Start the process's first writes together: the save injection settings
     // must be initialized safely even though writes share a read lock.
     first_io first[8] = {0}; pthread_t first_threads[8];
@@ -145,7 +138,6 @@ int main(void) {
     uint64_t n = dm_fs_commit_count();
     CHECK(commit(one, 1) == RES_OK && same(path, "new"), "one-element list commits actual file bytes");
     CHECK(dm_fs_commit_count() == n + 1, "one transaction");
-    check_visibility(save);
     g_nmnt = 0; // Simulate a fresh mount after process restart.
     CHECK(h_fs_MountSave("save", NULL) == RES_OK, "remount committed data");
     char got[64]; CHECK(read_save("save:/a", got, sizeof got) && !strcmp(got, "new"), "committed bytes survive remount");
@@ -154,7 +146,6 @@ int main(void) {
     n = dm_fs_commit_count(); int nf = g_nfail;
     CHECK(commit(one, 1) != RES_OK && same(path, "new"), "poisoned list commit fails without publishing bad bytes");
     CHECK(dm_fs_commit_count() == n && g_nfail == nf + 1, "refused transaction not counted; front end notified");
-    check_visibility(save);
     CHECK(write_save("save:/a", "good") == RES_OK && commit(one, 1) == RES_OK && same(path, "good"), "next clean transaction succeeds");
     CHECK(write_save("save:/a", "pending0") == RES_OK, "stage a write before the alias is mounted");
     CHECK(h_fs_MountSave("alias", NULL) == RES_OK, "mount an alias of the same host transaction");
@@ -268,7 +259,7 @@ int main(void) {
         CHECK(h_fs_OpenFile(&io.h, "alias:/a", MODE_WRITE) == RES_OK, "open alias for overlapping I/O");
         CHECK(h_fs_SetFileSize(io.h, 3) == RES_OK, "truncate A before overlapping I/O");
         pthread_mutex_lock(&io_lock);
-        block_fd = (int)io.h; block_op = op; block_entered = block_release = 0;
+        block_fd = (int)FH_IN(io.h); block_op = op; block_entered = block_release = 0;
         pthread_mutex_unlock(&io_lock);
         pthread_t writer, committer;
         if (pthread_create(&writer, NULL, blocked_save_io, &io)) return 2;

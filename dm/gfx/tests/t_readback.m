@@ -9,7 +9,7 @@
 uint64_t g_t0_ns;
 void *front_metal_layer(void) { return NULL; }
 module_t *module_of(const void *p) { (void)p; return NULL; }
-module_t g_mod[MAX_MOD]; int g_nmod;
+module_t *g_mod; int g_nmod;
 void svc_thread_dump(void) {}
 uint64_t now_ns(void) { return bp_now(); }
 static int cases, failed;
@@ -168,6 +168,12 @@ int main(void) { @autoreleasepool {
     h_nvnTextureBuilderSetStorage(&tb, (const NVNmemoryPool *)&pool, 393216); EXPECT("packaged texture 6 init", 1, h_nvnTextureInitialize(&pk6, &tb));
     float color2[] = {0.8f, 0.6f, 0.4f, 1.f}; h_nvnCommandBufferClearTexture(&cmd, &pk5, NULL, &region, color2, 15);
     h_nvnCommandBufferCopyTextureToTexture(&cmd, &pk5, NULL, &region, &pk6, NULL, &region, 0);
+    // A render pass into a packaged texture writes its storage, as the hardware's would: what the pass drew is read back into the storage when the submission completes (rt_mirror_flush).
+    // Tears of the Kingdom moves such textures with memcpy (its resource defragmentation) and re-creates them at the new address, which then has to carry the drawing
+    NVNtexture pk8; h_nvnTextureBuilderSetStorage(&tb, (const NVNmemoryPool *)&pool, 458752); EXPECT("packaged render target init", 1, h_nvnTextureInitialize(&pk8, &tb));
+    const NVNtexture *targets8[] = {&pk8};
+    h_nvnCommandBufferSetRenderTargets(&cmd, 1, targets8, views, NULL, NULL);
+    float color3[] = {0.4f, 0.2f, 0.8f, 1.f}; h_nvnCommandBufferClearColor(&cmd, 0, color3, 15);
     NVNsync sync; h_nvnSyncInitialize(&sync, NULL);
     h_nvnCommandBufferFenceSync(&cmd, &sync, NVN_SYNC_CONDITION_ALL_GPU_COMMANDS_COMPLETE, 0);
     NVNcommandHandle h = h_nvnCommandBufferEndRecording(&cmd);
@@ -201,6 +207,17 @@ int main(void) { @autoreleasepool {
     static const uint8_t expected2[] = {204, 153, 102, 255}; memset(cpu, 0xEE, sizeof cpu); h_nvnTextureReadTexels(&pk6, NULL, &region, cpu); bad = 0;
     for (int i=0; i<32; i++) bad += memcmp(cpu+i*4, expected2, 4) != 0;
     EXPECT("copy from a packaged texture the GPU cleared -> read back, 32 literal pixels", 0, bad);
+    static const uint8_t expected3[] = {102, 51, 204, 255}; memset(cpu, 0xEE, sizeof cpu); h_nvnTextureReadTexels(&pk8, NULL, &region, cpu); bad = 0;
+    for (int i=0; i<32; i++) bad += memcmp(cpu+i*4, expected3, 4) != 0;
+    EXPECT("render pass into a packaged texture -> its storage (ReadTexels), 32 literal pixels", 0, bad);
+    uint64_t reuploads = g_pkg_reuploads; tex_mtl((const tex_t *)&pk8);
+    EXPECT("its own readback is not uploaded again", 1, g_pkg_reuploads == reuploads);
+    NVNtexture pk9; memcpy((uint8_t *)mem + 491520, (uint8_t *)mem + 458752, ((const tex_t *)&pk8)->L.size);
+    h_nvnTextureBuilderSetStorage(&tb, (const NVNmemoryPool *)&pool, 491520); EXPECT("moved texture init", 1, h_nvnTextureInitialize(&pk9, &tb));
+    memset(cpu, 0xEE, sizeof cpu); h_nvnTextureReadTexels(&pk9, NULL, &region, cpu); bad = 0;
+    for (int i=0; i<32; i++) bad += memcmp(cpu+i*4, expected3, 4) != 0;
+    EXPECT("storage moved with memcpy -> a texture there holds the drawing, 32 literal pixels", 0, bad);
+    h_nvnTextureFinalize(&pk9); h_nvnTextureFinalize(&pk8);
     h_nvnTextureFinalize(&pk6); h_nvnTextureFinalize(&pk5); h_nvnTextureFinalize(&pk3); h_nvnTextureFinalize(&pk7); h_nvnTextureFinalize(&pk4); h_nvnTextureFinalize(&pk2);
     h_nvnTextureFinalize(&pk); h_nvnTextureFinalize(&tex); nvn_dirty_remove_range(mem); mtl_pool_del(mem); free(mem);
     sparse_reads(&region, expected);

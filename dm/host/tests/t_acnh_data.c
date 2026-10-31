@@ -1,6 +1,6 @@
 #define MIN(a,b) ((a)<(b)?(a):(b))
 #include "../hle_fs.c"
-struct dm_flags g_flag;uint64_t g_t0_ns;module_t g_mod[MAX_MOD];int g_nmod;
+struct dm_flags g_flag;uint64_t g_t0_ns;static module_t modules[1];module_t *g_mod=modules;int g_nmod;
 int dm_custom_lang_explicit(void){return -1;}int dm_sys_lang(void){return 10;}
 uint64_t now_ns(void){return clock_gettime_nsec_np(CLOCK_MONOTONIC);}
 void dm_prof_add(int a,uint64_t b,uint64_t c){(void)a;(void)b;(void)c;}void dm_guest_write_prepare(void*p,size_t n){(void)p;(void)n;}
@@ -44,3 +44,6 @@ int main(int argc,char**argv){if(argc<2)return 2;char why[256];CHECK("deep resou
 }
 
 int dm_guest_as_contains(uintptr_t address){(void)address;return 0;}
+// Generic system mounts are outside the .data fixture.
+int dm_main_imports(const char *prefix){(void)prefix;return 0;}
+int dm_mii_standin(const char *dir){(void)dir;return 0;}

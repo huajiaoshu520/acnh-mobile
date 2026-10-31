@@ -23,6 +23,7 @@ void dm_gamepad_reset(void);
 void dm_gamepad_active(void);
 void front_ios_boot(void);
 int front_ios_boot_ok(void);
+const char *front_ios_device_message(void);
 bool dm_show_launcher(void *view_controller, void (*done)(void));
 
 static CAMetalLayer *g_layer,*g_minimap_layer;
@@ -209,6 +210,8 @@ static void launcher_done(void) { [g_root startGame]; }
 - (void)viewDidAppear:(BOOL)a {
     [super viewDidAppear:a];UIApplication.sharedApplication.idleTimerDisabled=YES;
     if(self.preparing || self.game)return;self.preparing=YES;
+    const char *device=front_ios_device_message();
+    if(device){self.loadLabel.text=@(device);return;} // before resource import, launcher or guest execution
     // Make the shared Documents directory nonempty even before game resources
     // are imported (and in a game-free shell), so Files has a visible target.
     NSString *doc=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES).firstObject;
@@ -316,6 +319,41 @@ static UILabel *front_ios_fps_label(void) {
     return l;
 }
 
+// Progress screen of the prepare step (front.h front_progress): a dark view over the game's view and the pad, the title, a bar and a count, centered; UIKit views, so it draws while the game's thread waits
+static UIView *g_prog; static UILabel *g_prog_count; static UIProgressView *g_prog_bar; static UILabel *g_prog_title;
+void front_progress(const char *title, long done, long total) {
+    if (!g_layer) return;
+    NSString *tt = title ? @(title) : nil;
+    NSString *language=NSLocale.preferredLanguages.firstObject.lowercaseString ?: @"en";
+    if([language hasPrefix:@"zh"]){
+        BOOL traditional=[language containsString:@"hant"]||[language hasSuffix:@"-tw"]||[language hasSuffix:@"-hk"];
+        if([tt isEqualToString:@"Preparing shaders"])tt=traditional?@"正在準備著色器":@"正在准备着色器";
+        if([tt isEqualToString:@"Preparing pipelines"])tt=traditional?@"正在準備管線":@"正在准备管线";
+    }else if([language hasPrefix:@"ja"]){
+        if([tt isEqualToString:@"Preparing shaders"])tt=@"シェーダーを準備中";
+        if([tt isEqualToString:@"Preparing pipelines"])tt=@"パイプラインを準備中";
+    }
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (!tt) { [g_prog removeFromSuperview]; g_prog = nil; return; }
+        if (!g_prog) {
+            UIView *root = g_root.view; if (!root) return;
+            g_prog = [[UIView alloc] initWithFrame:root.bounds]; g_prog.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+            g_prog.backgroundColor = [UIColor colorWithWhite:0.06 alpha:0.94];
+            UIView *box = [[UIView alloc] initWithFrame:CGRectMake(floor((root.bounds.size.width - 320) / 2), floor((root.bounds.size.height - 96) / 2), 320, 96)];
+            box.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin | UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleBottomMargin;
+            g_prog_title = [[UILabel alloc] initWithFrame:CGRectMake(0, 4, 320, 30)]; g_prog_title.textAlignment = NSTextAlignmentCenter; g_prog_title.textColor = UIColor.whiteColor;
+            g_prog_title.font = [UIFont systemFontOfSize:20 weight:UIFontWeightSemibold];
+            g_prog_bar = [[UIProgressView alloc] initWithProgressViewStyle:UIProgressViewStyleDefault]; g_prog_bar.frame = CGRectMake(20, 48, 280, 4);
+            g_prog_count = [[UILabel alloc] initWithFrame:CGRectMake(0, 64, 320, 22)]; g_prog_count.textAlignment = NSTextAlignmentCenter;
+            g_prog_count.textColor = [UIColor colorWithWhite:0.72 alpha:1]; g_prog_count.font = [UIFont monospacedDigitSystemFontOfSize:13 weight:UIFontWeightRegular];
+            [box addSubview:g_prog_title]; [box addSubview:g_prog_bar]; [box addSubview:g_prog_count]; [g_prog addSubview:box];
+            [root addSubview:g_prog];
+        }
+        g_prog_title.text = tt; g_prog_bar.progress = total > 0 ? (float)done / (float)total : 0;
+        g_prog_count.text = [NSString stringWithFormat:@"%@ / %@", [NSNumberFormatter localizedStringFromNumber:@(done) numberStyle:NSNumberFormatterDecimalStyle],
+                             [NSNumberFormatter localizedStringFromNumber:@(total) numberStyle:NSNumberFormatterDecimalStyle]];
+    });
+}
 void *front_metal_layer(void) { return (__bridge void *)g_layer; }
 void front_run(void (*guest)(void)) { guest(); }   // Already on main.m's big-stack thread
 

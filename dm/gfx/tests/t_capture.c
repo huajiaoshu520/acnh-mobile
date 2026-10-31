@@ -84,6 +84,7 @@ int main(void) {
     p_set_pool *sp = emit(&s0, OP_SET_TEX_POOL, sizeof *sp); sp->pool = &game_dpool;
     p_bind_vbuf *vb = emit(&s0, OP_BIND_VBUF, offsetof(p_bind_vbuf, r) + 2 * sizeof(NVNbufferRange)); vb->n = 2; vb->r[0] = (NVNbufferRange){(uint64_t)(uintptr_t)pool_a + 0x100, 0x200}; vb->r[1] = (NVNbufferRange){(uint64_t)(uintptr_t)pool_b + 0x40, 0x10};
     p_bind_buf *ub = emit(&s0, OP_BIND_UBO, sizeof *ub); *ub = (p_bind_buf){1, 3, (uint64_t)(uintptr_t)pool_b + 0x800, 0x100};
+    p_bind_ubo_small *us = emit(&s0, OP_BIND_UBO_SMALL, sizeof *us); *us = (p_bind_ubo_small){0, 2, 64, (uint64_t)(uintptr_t)pool_b + 0x1000};
     p_bind_handles *bh = emit(&s0, OP_BIND_TEX, offsetof(p_bind_handles, h) + 4 * 8); bh->stage = 1; bh->n = 4; bh->defer = 1; bh->src = (uint64_t)(uintptr_t)heap_handles;
     p_draw_idx *di = emit(&s0, OP_DRAW_IDX, sizeof *di); di->prim = 4; di->count = 3; di->ibuf = (uint64_t)(uintptr_t)pool_a + 0x3000; di->ind = (uint64_t)(uintptr_t)pool_a + 0x3100;
     p_draw *dr = emit(&s0, OP_DRAW, offsetof(p_draw, ind)); dr->count = 3;   // a plain draw stops before ind (hle_nvn.c rec_draw)
@@ -153,6 +154,7 @@ int main(void) {
     CHECK(AT(0, sp, p_set_pool).pool == &new_dp, "descriptor pool pointer");
     CHECK(AT(0, vb, p_bind_vbuf).r[0].address == (uint64_t)(uintptr_t)new_base[0] + 0x100 && AT(0, vb, p_bind_vbuf).r[1].address == (uint64_t)(uintptr_t)new_base[1] + 0x40 && AT(0, vb, p_bind_vbuf).r[1].size == 0x10, "vertex buffers relocated");
     CHECK(AT(0, ub, p_bind_buf).addr == (uint64_t)(uintptr_t)new_base[1] + 0x800, "uniform buffer relocated");
+    CHECK(AT(0, us, p_bind_ubo_small).addr == (uint64_t)(uintptr_t)new_base[1] + 0x1000, "compact uniform buffer relocated");
     CHECK(AT(0, bh, p_bind_handles).src == (uint64_t)(uintptr_t)new_base[2] && !memcmp(new_base[2], heap_handles, sizeof heap_handles), "deferred handles: their own region, relocated");
     CHECK(AT(0, di, p_draw_idx).ibuf == (uint64_t)(uintptr_t)new_base[0] + 0x3000 && AT(0, di, p_draw_idx).ind == (uint64_t)(uintptr_t)new_base[0] + 0x3100, "index buffer and indirect arguments");
     CHECK(AT(0, ev, uint64_t) == (uint64_t)(uintptr_t)new_base[1] + 0x10, "event word relocated");

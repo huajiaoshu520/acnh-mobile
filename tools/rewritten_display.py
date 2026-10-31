@@ -1,8 +1,8 @@
-"""Reject prepared modules that predate the ACNH expanded-view observation sites."""
+"""Reject prepared modules that predate the ACNH display and read-only LAN observation sites."""
 from pathlib import Path
 
 BUILD = 'ff1d1c05670db6021c85b624a710b963'
-SITES = {(0x37e5968, 26, 'bd409800'), (0x27d4c0, 28, 'fc1b0fe8')}
+SITES = {(0x37e5968, 32, 'bd409800'), (0x27d4c0, 33, 'fc1b0fe8'), (0x1296c4, 290, 'd10143ff'), (0x129780, 546, 'd10143ff')}
 
 def validate_display_observations(patched):
     path = Path(patched) / 'main.obs.tsv'

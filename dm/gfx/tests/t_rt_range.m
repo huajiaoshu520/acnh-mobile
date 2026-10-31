@@ -2,7 +2,7 @@
 #include "../nvn/nvn_mtl.m"
 void *front_metal_layer(void){return NULL;}
 module_t *module_of(const void *p){(void)p;return NULL;}
-module_t g_mod[MAX_MOD];int g_nmod;
+module_t *g_mod;int g_nmod;
 void svc_thread_dump(void){}
 uint64_t now_ns(void){return bp_now();}
 static int cases,bad,enabled,small_depth,force_invalid,sample_attachment,both_flags;
@@ -21,7 +21,7 @@ static void seed(void){MTL4RenderPassDescriptor *p=[MTL4RenderPassDescriptor new
 static void rr_read_planes(id<MTLBuffer> __strong *b){id<MTLTexture> t=tex_mtl(&color),d=tex_mtl(&depth);[blit()copyFromTexture:t sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0,0,0)sourceSize:MTLSizeMake(8,8,1)toBuffer:b[0]destinationOffset:0 destinationBytesPerRow:32 destinationBytesPerImage:256];
  [blit()copyFromTexture:d sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0,0,0)sourceSize:MTLSizeMake(8,8,1)toBuffer:b[1]destinationOffset:0 destinationBytesPerRow:32 destinationBytesPerImage:256 options:MTLBlitOptionDepthFromDepthStencil];
  [blit()copyFromTexture:d sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0,0,0)sourceSize:MTLSizeMake(8,8,1)toBuffer:b[2]destinationOffset:0 destinationBytesPerRow:8 destinationBytesPerImage:64 options:MTLBlitOptionStencilFromDepthStencil];}
-int main(int argc,char **argv){@autoreleasepool{enabled=1;for(int i=1;i<argc;i++){if(!strcmp(argv[i],"--disabled"))enabled=0;else if(!strcmp(argv[i],"--small-depth"))small_depth=1;else if(!strcmp(argv[i],"--force-invalid"))force_invalid=1;else if(!strcmp(argv[i],"--sample-attachment"))sample_attachment=1;else if(!strcmp(argv[i],"--both-flags"))both_flags=1;}if(enabled)setenv("DM_NVN_RT_RANGE","1",1);else unsetenv("DM_NVN_RT_RANGE");if(both_flags)setenv("DM_NVN_VIEW_CONTINUE","1",1);else unsetenv("DM_NVN_VIEW_CONTINUE");mtl_init();NSError *err=nil;
+int main(int argc,char **argv){@autoreleasepool{enabled=1;for(int i=1;i<argc;i++){if(!strcmp(argv[i],"--disabled"))enabled=0;else if(!strcmp(argv[i],"--small-depth"))small_depth=1;else if(!strcmp(argv[i],"--force-invalid"))force_invalid=1;else if(!strcmp(argv[i],"--sample-attachment"))sample_attachment=1;else if(!strcmp(argv[i],"--both-flags"))both_flags=1;}setenv("DM_NVN_TBDR","1",1);   /* the depth-only mode and the store lookahead need the TBDR optimizations, off by default since Mario */ if(enabled)setenv("DM_NVN_RT_RANGE","1",1);else unsetenv("DM_NVN_RT_RANGE");if(both_flags)setenv("DM_NVN_VIEW_CONTINUE","1",1);else unsetenv("DM_NVN_VIEW_CONTINUE");mtl_init();NSError *err=nil;
  id<MTLLibrary> lib=[g_dev newLibraryWithSource:@"#include <metal_stdlib>\nusing namespace metal;vertex float4 v(uint n[[vertex_id]]){float2 p[3]={float2(-1,-1),float2(3,-1),float2(-1,3)};return float4(p[n],.5,1);}\nfragment float4 r(){return float4(1,0,0,1);}\nfragment float4 g(){return float4(0,1,0,0);}struct A{texture2d<float> t[[id(0)]];};fragment float4 s(constant A&a[[buffer(0)]]){return a.t.read(uint2(0));}\n"options:nil error:&err];if(!lib)abort();
  for(int i=0;i<2;i++){NvProg *p=[NvProg new];p->sh[0]=[NvShader new];p->sh[0]->fn=[lib newFunctionWithName:@"v"];p->sh[1]=[NvShader new];p->sh[1]->fn=[lib newFunctionWithName:i?(sample_attachment?@"s":@"g"):@"r"];p->sh[1]->stage=1;p->sh[1]->rf.color_mask=1;if(i&&sample_attachment){p->sh[1]->rf.nb=1;p->sh[1]->rf.b[0]=(nvn_rbind){.kind=NVN_RB_TEX,.dtt=MTLTextureType2D};p->sh[1]->ae=[p->sh[1]->fn newArgumentEncoderWithBufferIndex:0];}
 #ifdef NVN_RT_RANGE_RO_IMPL

@@ -2,7 +2,7 @@
 // validates both build ID and original instructions and replays each original
 // instruction after the callback. No result, state, or register is altered.
 #include "hle.h"
-enum { OBS_ACNH_LAN_RESULT = 29 };
+enum { OBS_ACNH_LAN_RESULT = 34 };
 #include "lan_room.h"
 #include <stdatomic.h>
 static pthread_mutex_t result_lock=PTHREAD_MUTEX_INITIALIZER;
@@ -12,9 +12,9 @@ static void lan_result(uint64_t *regs,int kind){
     uintptr_t base=0;
     for(int i=0;i<g_nmod;i++)if(!strcmp(g_mod[i].name,"main")&&!strcmp(g_mod[i].build_id,"ff1d1c05670db6021c85b624a710b963")){base=(uintptr_t)g_mod[i].base;break;}
     if(!base)return;
-    // entry.S allocates 800 bytes, after site_obs has saved original x29/x30
-    // in 16 bytes. regs[30] is the gate-block LR; the game's LR is at +808.
-    uintptr_t caller;memcpy(&caller,(const uint8_t*)regs+808,sizeof caller);
+    // entry.S runs callbacks on the dedicated gate stack. regs[99] names
+    // the guest gate block containing the original x29/x30, not this frame.
+    uintptr_t caller;memcpy(&caller,(const uint8_t*)(uintptr_t)regs[99]+8,sizeof caller);
     if(caller<base+0x11f000 || caller>=base+0x210000 || !regs[1])return;
     if(dm_room_state()==0)return;
     uint32_t value;memcpy(&value,(const void*)(uintptr_t)regs[1],sizeof value);

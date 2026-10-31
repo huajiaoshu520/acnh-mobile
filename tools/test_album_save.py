@@ -4,7 +4,7 @@ import re,subprocess,tempfile,unittest
 ROOT=Path(__file__).resolve().parents[1]
 class AlbumSave(unittest.TestCase):
  def test_sdk_overloads(self):
-  source=(ROOT/'dm/host/hle_offline.c').read_text()
+  source=(ROOT/'dm/games/01006F8002326000/network/hle_offline.c').read_text()
   functions=[]
   for name in ['h_album_Save','h_album_Save7']:
    match=re.search(r'HLE_FORCE\([^\n]+, Result, '+name+r',\s*([^}]+})',source)

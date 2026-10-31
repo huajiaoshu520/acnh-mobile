@@ -1,6 +1,6 @@
 import importlib.util, tempfile, unittest
 from pathlib import Path
-p=Path(__file__).resolve().parent/'upstream/nsp_pipeline.py'
+p=Path(__file__).resolve().parents[1]/'scripts/build_ipa_from_nsp.py'
 spec=importlib.util.spec_from_file_location('external_drive_pipeline',p)
 u=importlib.util.module_from_spec(spec);spec.loader.exec_module(u)
 class ExternalDriveTests(unittest.TestCase):

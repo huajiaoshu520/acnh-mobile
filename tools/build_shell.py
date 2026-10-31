@@ -11,7 +11,7 @@ def source_id(root):
     h = hashlib.sha256()
     for base in ['dm/host', 'dm/gfx', 'dm/ios-acnh/Sources', 'dm/ios/Sources', 'dm/games/01006F8002326000']:
         for p in sorted((root/base).rglob('*')):
-            if p.is_file() and p.suffix in {'.c', '.h', '.m', '.S', '.inc', '.py', '.tsv', '.cs', '.csproj', '.swift', '.mk', '.json'} and p.name not in excluded and not any(x in {'gen','bin','obj','__pycache__'} for x in p.relative_to(root).parts):
+            if p.is_file() and p.suffix in {'.c', '.h', '.m', '.S', '.inc', '.py', '.tsv', '.cs', '.csproj', '.swift', '.mk', '.json', '.metal'} and p.name not in excluded and not any(x in {'gen','bin','obj','__pycache__'} for x in p.relative_to(root).parts):
                 h.update(str(p.relative_to(root)).encode()+b'\0'+p.read_bytes()+b'\0')
     return h.hexdigest()
 

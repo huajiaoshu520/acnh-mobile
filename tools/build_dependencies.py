@@ -13,11 +13,11 @@ def available(module):
 
 def ensure(raw=False,plan=False,mac=False):
     os.environ['PATH']=str(Path.home()/'.dotnet')+os.pathsep+os.environ.get('PATH','')
-    tools=([] if mac else ['xcodegen'])+(['spirv-cross','zstd'] if raw else [])
+    tools=([] if mac else ['xcodegen'])+(['cmake','zstd'] if raw else [])
     missing=[name for name in tools if not shutil.which(name)]
     if sys.version_info<(3,12):missing.append('python@3.14')
     dotnet=raw and (not shutil.which('dotnet') or not any(x.startswith('10.') for x in subprocess.check_output(['dotnet','--list-sdks'],text=True).splitlines()))
-    packages=[package for module,package in [('lz4.block','lz4'),('capstone','capstone'),('fontTools','fonttools')] if not available(module)]
+    packages=[package for module,package in [('lz4.block','lz4'),('capstone','capstone'),('fontTools','fonttools'),('nsz','nsz')] if not available(module)]
     if raw and sys.version_info<(3,14) and not available('backports.zstd'):packages.append('backports.zstd')
     if plan:return dict(homebrew=missing,dotnet10=dotnet,python=packages)
     if subprocess.run(['xcodebuild','-version'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode:

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Ryujinx.Graphics.Shader.StructuredIr
@@ -90,7 +91,7 @@ namespace Ryujinx.Graphics.Shader.StructuredIr
             return format is TextureFormat.R32Sint or TextureFormat.R32Uint;
         }
 
-        public static TextureFormat GetTextureFormatAtomic(IGpuAccessor gpuAccessor, int handle, int cbufSlot = -1)
+        public static TextureFormat GetTextureFormatAtomic(IGpuAccessor gpuAccessor, int handle, int cbufSlot = -1, bool strict = false)
         {
             // Atomic image instructions do not support GL_EXT_shader_image_load_formatted,
             // and must have a type specified. Default to R32Sint if not available.
@@ -99,6 +100,11 @@ namespace Ryujinx.Graphics.Shader.StructuredIr
 
             if (!FormatSupportsAtomic(format))
             {
+                if (strict)
+                {
+                    throw new NotSupportedException($"Metal image atomics require an R32 integer descriptor format, got {format}.");
+                }
+
                 gpuAccessor.Log($"Unsupported format for texture {handle}: {format}.");
 
                 format = TextureFormat.R32Sint;

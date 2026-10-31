@@ -20,4 +20,5 @@ jobs:
       - run: python tools/test_nsp_chain.py
       - run: python tools/test_shader_tables.py
       - run: python tools/test_nsp_mac.py
+      - run: python tools/test_reference.py
       - run: python dm/tools/tests/test_patches.py

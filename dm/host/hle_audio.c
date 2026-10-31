@@ -148,7 +148,7 @@ static OSStatus au_render(void *ctx, AudioUnitRenderActionFlags *f, const AudioT
     aout *a = ctx;
     atomic_fetch_add_explicit(&g_render_calls, 1, memory_order_relaxed); atomic_fetch_add_explicit(&a->cb_n, 1, memory_order_relaxed);
     {
-        // Every 2000 callbacks of each output, log one line: frames requested per call, pending blocks at callback start, underruns (check this line on a new device; docs/agents/03-bringup.md "Crackling on iOS only").
+        // Every 2000 callbacks of each output, log one line: frames requested per call, pending blocks at callback start, underruns (check this line on a new device; docs/reference/audio.md "RemoteIO's default I/O buffer duration").
         // Kept per output: with two outputs open, combined numbers mislead (one fully fed and one fed by nobody look like "every other callback underruns")
         uint32_t qd = atomic_load(&a->q_tail) - atomic_load(&a->q_head);
         if (!a->st_calls || frames < a->st_fmin) a->st_fmin = frames; if (frames > a->st_fmax) a->st_fmax = frames; a->st_qsum += qd;
@@ -234,7 +234,7 @@ static OSStatus au_create(aout *a) {
 static void *au_create_th(void *a) { return (void *)(intptr_t)au_create(a); }
 static void au_open(aout *a) {
     pthread_t t; void *r = NULL;
-    if (pthread_create(&t, NULL, au_create_th, a) || pthread_join(t, &r)) die("AudioUnit setup: cannot start its thread");
+    if (pthread_create(&t, NULL, au_create_th, a) || dm_host_thread_join(t, &r)) die("AudioUnit setup: cannot start its thread");
     OSStatus st = (OSStatus)(intptr_t)r; if (st) die("AudioUnit setup failed (status %d)", (int)st);
 }
 // Silent sink: consumes in real time at 48 kHz every 5 ms. When more than 100 ms behind (iOS suspended the whole process in the background, SIGSTOP on the Mac), restart the count from now and do not make up the missed time --
@@ -345,6 +345,9 @@ static Result au_open_at(void *g, void *ev, const char *name, const uint8_t *par
 HLE_FORCE("_ZN2nn5audio12OpenAudioOutEPNS0_8AudioOutEPNS_2os11SystemEventEPKcRKNS0_17AudioOutParameterE", "connect to the audout service; host AudioUnit / silent sink",
           Result, h_au_Open, void *g, void *ev, const char *name, const uint8_t *param) { return au_open_at(g, ev, name, param, __builtin_return_address(0)); }
 // The two default-device overloads (Engage, SDK 12): as OpenAudioOut with the default device name; the overload without an event binds no release event (the game polls GetReleasedAudioOutBuffer)
+// SDK 22 dropped the release event from the parameter-carrying overload (Well Dweller calls this one; unbound it reached the SDK's audout session, which fails with 0xe15 and the game aborts)
+HLE_FORCE("_ZN2nn5audio12OpenAudioOutEPNS0_8AudioOutEPKcRKNS0_17AudioOutParameterE", "connect to the audout service, no release event (SDK 22 overload)",
+          Result, h_au_Open4, void *g, const char *name, const uint8_t *param) { return au_open_at(g, NULL, name, param, __builtin_return_address(0)); }
 HLE_FORCE("_ZN2nn5audio19OpenDefaultAudioOutEPNS0_8AudioOutEPNS_2os11SystemEventERKNS0_17AudioOutParameterE", "connect to the audout service (default device); same as OpenAudioOut",
           Result, h_au_OpenDef, void *g, void *ev, const uint8_t *param) { return au_open_at(g, ev, NULL, param, __builtin_return_address(0)); }
 HLE_FORCE("_ZN2nn5audio19OpenDefaultAudioOutEPNS0_8AudioOutERKNS0_17AudioOutParameterE", "connect to the audout service (default device, no event); same as OpenAudioOut",
@@ -361,13 +364,35 @@ static Result au_start_at(void *g, void *lr) {
     pthread_mutex_unlock(&g_aos_lock);
     return RES_OK;
 }
+// Start, Stop and Close run on the game's thread and call into Core Audio, which needs far more stack than a game thread may have left; they run on the big host stack (hle_bigstack.c).
+// The first AudioOutputUnitStart of the process sets up the Core Audio session (HALC_ProxyIOContext::StartIOProc -> +[AVAudioSession sharedInstance], which connects to the session service over XPC).
+// On the guest stack that ran off the stack's bottom with SIGBUS, sp in the guest stack block, in a frame that varies between runs (CFString formatting under NSXPCInterface, the Swift runtime's type
+// demangler under CAReporter); Arcade Archives RAINBOW ISLANDS 1.0.2, SDK 19.3.11, M1, macOS 27.2, PR #721. Stop (AudioOutputUnitStop) and Close (disposing the AudioUnit) talk to the same service.
+// dm_bigstack_caller gives the game's call site back for the log line
 HLE_FORCE_BIG("_ZN2nn5audio13StartAudioOutEPNS0_8AudioOutE", "start playback", Result, h_au_Start, void *g) { return au_start_at(g, dm_bigstack_caller(__builtin_return_address(0))); }
+// After the backend stops, return even its partly played buffer. FMOD can wait for these releases before joining its output thread (Pokemon Brilliant Diamond 1.0.0, PR #190).
+// g_aos_lock and backend_stop exclude the consumer; m excludes append/reclaim. Buffers appended while already stopped belong to the next Start, so only a started -> stopped transition calls this.
+static void au_release_pending(aout *a) {
+    pthread_mutex_lock(&a->m);
+    uint32_t qh = atomic_load_explicit(&a->q_head, memory_order_relaxed), qt = atomic_load_explicit(&a->q_tail, memory_order_acquire);
+    uint32_t rr = atomic_load_explicit(&a->rel_head, memory_order_acquire), rw = atomic_load_explicit(&a->rel_tail, memory_order_relaxed);
+    int released = qh != qt;
+    while (qh != qt) {
+        if (rw - rr >= RELMAX) die("AudioOut released queue overflow while stopping");
+        a->rel[rw++ & (RELMAX - 1)] = a->q[qh++ & (QMAX - 1)];
+    }
+    atomic_store_explicit(&a->rel_tail, rw, memory_order_release);
+    atomic_store_explicit(&a->q_head, qh, memory_order_release); a->pos = 0;
+    pthread_mutex_unlock(&a->m);
+    if (released) { if (a->event) notify_release(a); if (a->rel_sem) dispatch_semaphore_signal(a->rel_sem); }
+}
 static void au_stop_at(void *g, void *lr) {   // lr NULL: the stop inside Close, not logged separately
     aout *a = ao(g);
     pthread_mutex_lock(&g_aos_lock);
     int was = atomic_exchange_explicit(&a->state, STATE_STOPPED, memory_order_acq_rel);
     if (lr) au_note(a, was == STATE_STARTED ? "Stop" : "Stop (already stopped)", lr);
     backend_stop(a);   // the AudioUnit, or the silent sink (including one that took over during suspension)
+    if (was == STATE_STARTED) au_release_pending(a);
     pthread_mutex_unlock(&g_aos_lock);
 }
 HLE_FORCE_BIG("_ZN2nn5audio12StopAudioOutEPNS0_8AudioOutE", "stop playback", void, h_au_Stop, void *g) { au_stop_at(g, dm_bigstack_caller(__builtin_return_address(0))); }

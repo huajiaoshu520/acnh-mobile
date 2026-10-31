@@ -48,7 +48,7 @@ def variant(msl):
         empty = not msl[m.end():i - 1].strip()
         out += [msl[at:i - 1], ('' if empty else ', ') + param]; at = i - 1
     src = ''.join(out) + msl[at:]
-    first = ENTRY.search(src).start()
+    first = entries[0].start()   # the text up to the first entry point's parameter list is msl's, so its offset holds in src
     head, body = src[:first], src[first:]
     # Every return of an entry point returns the shader's outputs, out, or a copy of them made from out (main0_u, main0_m, main0_d): colour 0's alpha is out's before the copy.
     # SPIR-V Cross writes helper functions before main0, so every return after it is an entry point's

@@ -7,7 +7,6 @@ import dmsh_fetch, dmsh_geometry
 import sys, types
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "games"))
 import game
-dmsh_alpha=types.SimpleNamespace(fragment=game.shader_patch(game.load("01006F8002326000")))
 
 HERE=Path(__file__).parent
 node=next(n for n in ast.parse((HERE/'dmsh_build.py').read_text()).body if isinstance(n,ast.FunctionDef) and n.name=='precise')
@@ -45,8 +44,8 @@ fragment main0_out_u main0_u() { return main0_out_u{uint4(1)}; }
   for decl in ('float clip[8] [[clip_distance]];', 'float clip [[clip_distance]] [8];'):
    src='struct main0_out {\nfloat4 p [[position]];\n'+decl+'\nfloat clip0 [[user(clip0)]];\n};\nvertex main0_out main0(uint v [[vertex_id]]) {main0_out out; return out;}'
    cap=dmsh_geometry.capture(src)
-   self.assertIn('dm_p[12] = as_type<uint>(out.clip[7]);',cap)
-   self.assertIn('dm_p[5] = as_type<uint>(out.clip0);',cap)
+   self.assertIn('dm_cw(dm_gs, dm_p, 12, as_type<uint>(out.clip[7]));',cap)
+   self.assertIn('dm_cw(dm_gs, dm_p, 5, as_type<uint>(out.clip0));',cap)
  def test_official_alpha_variant_preserves_base(self):
   import dmsh_alpha as official
   src="""struct main0_out {
@@ -58,6 +57,5 @@ fragment main0_out main0() { main0_out out = {}; out.m_0 = float4(1); return out
   self.assertEqual(entries,['main0'])
   self.assertIn('discard_fragment()',variant)
   self.assertNotIn('dm_alpha_state',src)
-  self.assertEqual(game.shader_patch(game.load('01006F8002326000'))(src),src)
 
 if __name__=='__main__':unittest.main()

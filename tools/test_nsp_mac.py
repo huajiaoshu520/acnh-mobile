@@ -12,7 +12,7 @@ import unittest
 from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
-SCRIPT = REPO / 'tools/upstream/nsp_pipeline.py'
+SCRIPT = REPO / 'scripts/build_ipa_from_nsp.py'
 spec = importlib.util.spec_from_file_location('build_ipa_from_nsp', SCRIPT)
 nsp = importlib.util.module_from_spec(spec); spec.loader.exec_module(nsp)
 CHAIN, INPUTS = '0123456789ab', 'aaaaaaaaaaaa'
@@ -64,7 +64,7 @@ class Nvn(Base):
     def test_mac_after_ios(self):
         self.assertEqual(self.build(False), self.sh / 'ios')
         self.assertEqual(self.ran[0][1]['IOSOUT'], str(self.sh / 'ios'))
-        (self.sh / f'mac-b-{CHAIN}.key').unlink()   # an iOS build from before Mac-only builds
+        (self.sh / f'mac-b-{CHAIN}.key').unlink(missing_ok=True)   # an iOS build from before Mac-only builds
         self.assertEqual(self.build(True), self.sh / 'cache'); self.assertEqual(self.ran, [])
 
     def test_ios_after_mac(self):

@@ -63,8 +63,8 @@ enum {
     RO_CB_NEW, RO_CB_BEGIN, RO_CB_END, RO_COMMIT, RO_COMMIT_REAL, RO_SIGNAL,
     RO_RE_BEGIN, RO_CE_BEGIN, RO_END,
     RO_BAR_QUEUE, RO_BAR_AFTER_STAGES, RO_BAR_ENCODER,
-    RO_R_TABLE, RO_R_PSO, RO_R_DSS, RO_R_VIEWPORT, RO_R_SCISSOR, RO_R_CULL, RO_R_WINDING, RO_R_FILL, RO_R_BIAS, RO_R_CLIP, RO_R_SREF, RO_R_BLEND, RO_R_VIS,
-    RO_R_DRAW, RO_R_DRAW_INST, RO_R_DRAW_IND, RO_R_DRAW_IDX, RO_R_DRAW_IDX_IND, RO_R_STORE_C, RO_R_STORE_D, RO_R_STORE_S,
+    RO_R_TABLE, RO_R_PSO, RO_R_DSS, RO_R_VIEWPORT, RO_R_SCISSOR, RO_R_CULL, RO_R_WINDING, RO_R_FILL, RO_R_BIAS, RO_R_CLIP, RO_R_SREF, RO_R_BLEND, RO_R_VIS, RO_R_AMP,
+    RO_R_DRAW, RO_R_DRAW_INST, RO_R_DRAW_IND, RO_R_DRAW_IDX, RO_R_DRAW_IDX_IND, RO_R_MESH, RO_R_STORE_C, RO_R_STORE_D, RO_R_STORE_S,
     RO_C_TABLE, RO_C_PSO, RO_C_DISPATCH, RO_C_DISPATCH_IND, RO_C_COPY_BB, RO_C_COPY_BT, RO_C_COPY_TB, RO_C_COPY_TT, RO_C_FILL,
     RO_T_ADDR, RO_T_TEX, RO_T_SAMP,
     RO_LABEL, RO_R_TS, RO_C_TS,   // diagnostics: DM_NVN_ENC_LABEL, DM_NVN_GPUPROF
@@ -82,7 +82,7 @@ static inline int rec_on(void) {
 #if TARGET_OS_IPHONE
     g_rec = !e || atoi(e) > 0;
 #else
-    g_rec = e && atoi(e) > 0;
+    g_rec = e ? atoi(e) > 0 : DM_GAME_ENC_THREAD;   // the profile's enc_thread: Need for Speed: Hot Pursuit Remastered waits on its fence each frame, so encoding on its thread took its 60 fps frame from 18.1 to 16.7 ms
 #endif
     if (g_rec) MLOG("Metal encoding runs on its own thread (DM_NVN_ENC_THREAD=0 turns it off)");
     return g_rec;
@@ -140,11 +140,13 @@ static void rec_exec(const rec_t *r) {
     case RO_R_SREF: [(id<MTL4RenderCommandEncoder>)e setStencilReferenceValue:(uint32_t)a[0]]; break;
     case RO_R_BLEND: [(id<MTL4RenderCommandEncoder>)e setBlendColorRed:rec_fv(a[0]) green:rec_fv(a[1]) blue:rec_fv(a[2]) alpha:rec_fv(a[3])]; break;
     case RO_R_VIS: [(id<MTL4RenderCommandEncoder>)e setVisibilityResultMode:a[0] offset:a[1]]; break;
+    case RO_R_AMP: { MTLVertexAmplificationViewMapping m = {(uint32_t)a[1], (uint32_t)a[2]}; [(id<MTL4RenderCommandEncoder>)e setVertexAmplificationCount:a[0] viewMappings:a[0] ? &m : NULL]; break; }   // count 0 or 1 (slice-merged passes)
     case RO_R_DRAW: [(id<MTL4RenderCommandEncoder>)e drawPrimitives:a[0] vertexStart:a[1] vertexCount:a[2]]; break;
     case RO_R_DRAW_INST: [(id<MTL4RenderCommandEncoder>)e drawPrimitives:a[0] vertexStart:a[1] vertexCount:a[2] instanceCount:a[3] baseInstance:a[4]]; break;
     case RO_R_DRAW_IND: [(id<MTL4RenderCommandEncoder>)e drawPrimitives:a[0] indirectBuffer:a[1]]; break;
     case RO_R_DRAW_IDX: [(id<MTL4RenderCommandEncoder>)e drawIndexedPrimitives:a[0] indexCount:a[1] indexType:a[2] indexBuffer:a[3] indexBufferLength:a[4] instanceCount:a[5] baseVertex:(NSInteger)a[6] baseInstance:a[7]]; break;
     case RO_R_DRAW_IDX_IND: [(id<MTL4RenderCommandEncoder>)e drawIndexedPrimitives:a[0] indexType:a[1] indexBuffer:a[2] indexBufferLength:a[3] indirectBuffer:a[4]]; break;
+    case RO_R_MESH: [(id<MTL4RenderCommandEncoder>)e drawMeshThreadgroups:MTLSizeMake(a[0], 1, 1) threadsPerObjectThreadgroup:MTLSizeMake(1, 1, 1) threadsPerMeshThreadgroup:MTLSizeMake(a[1], 1, 1)]; break;
     case RO_R_STORE_C: [(id<MTL4RenderCommandEncoder>)e setColorStoreAction:a[0] atIndex:a[1]]; break;
     case RO_R_STORE_D: [(id<MTL4RenderCommandEncoder>)e setDepthStoreAction:a[0]]; break;
     case RO_R_STORE_S: [(id<MTL4RenderCommandEncoder>)e setStencilStoreAction:a[0]]; break;
@@ -269,6 +271,7 @@ static inline id rec_table_real(id t) { return [t isKindOfClass:[DmRecTable clas
 - (void)setStencilReferenceValue:(uint32_t)v { rec_put(RO_R_SREF, 0)->a[0] = v; }
 - (void)setBlendColorRed:(float)r_ green:(float)g blue:(float)b alpha:(float)a { rec_t *r = rec_put(RO_R_BLEND, 0); r->a[0] = rec_f(r_); r->a[1] = rec_f(g); r->a[2] = rec_f(b); r->a[3] = rec_f(a); }
 - (void)setVisibilityResultMode:(MTLVisibilityResultMode)m offset:(NSUInteger)o { rec_t *r = rec_put(RO_R_VIS, 0); r->a[0] = m; r->a[1] = o; }
+- (void)setVertexAmplificationCount:(NSUInteger)n viewMappings:(const MTLVertexAmplificationViewMapping *)m { rec_t *r = rec_put(RO_R_AMP, 0); r->a[0] = n; r->a[1] = n && m ? m[0].viewportArrayIndexOffset : 0; r->a[2] = n && m ? m[0].renderTargetArrayIndexOffset : 0; }
 - (void)drawPrimitives:(MTLPrimitiveType)p vertexStart:(NSUInteger)v vertexCount:(NSUInteger)n { rec_t *r = rec_put(RO_R_DRAW, 0); r->a[0] = p; r->a[1] = v; r->a[2] = n; }
 - (void)drawPrimitives:(MTLPrimitiveType)p vertexStart:(NSUInteger)v vertexCount:(NSUInteger)n instanceCount:(NSUInteger)i baseInstance:(NSUInteger)b {
     rec_t *r = rec_put(RO_R_DRAW_INST, 0); r->a[0] = p; r->a[1] = v; r->a[2] = n; r->a[3] = i; r->a[4] = b; }
@@ -277,6 +280,7 @@ static inline id rec_table_real(id t) { return [t isKindOfClass:[DmRecTable clas
     rec_t *r = rec_put(RO_R_DRAW_IDX, 0); r->a[0] = p; r->a[1] = n; r->a[2] = t; r->a[3] = g; r->a[4] = len; r->a[5] = i; r->a[6] = (uint64_t)bv; r->a[7] = bi; }
 - (void)drawIndexedPrimitives:(MTLPrimitiveType)p indexType:(MTLIndexType)t indexBuffer:(uint64_t)g indexBufferLength:(NSUInteger)len indirectBuffer:(uint64_t)ind {
     rec_t *r = rec_put(RO_R_DRAW_IDX_IND, 0); r->a[0] = p; r->a[1] = t; r->a[2] = g; r->a[3] = len; r->a[4] = ind; }
+- (void)drawMeshThreadgroups:(MTLSize)g threadsPerObjectThreadgroup:(MTLSize)o threadsPerMeshThreadgroup:(MTLSize)m { (void)o; rec_t *r = rec_put(RO_R_MESH, 0); r->a[0] = g.width; r->a[1] = m.width; }
 - (void)setColorStoreAction:(MTLStoreAction)a atIndex:(NSUInteger)i { rec_t *r = rec_put(RO_R_STORE_C, 0); r->a[0] = a; r->a[1] = i; }
 - (void)setDepthStoreAction:(MTLStoreAction)a { rec_put(RO_R_STORE_D, 0)->a[0] = a; }
 - (void)setStencilStoreAction:(MTLStoreAction)a { rec_put(RO_R_STORE_S, 0)->a[0] = a; }

@@ -4,7 +4,7 @@
 #include "../nvn/nvn_mtl.m"
 void *front_metal_layer(void) { return NULL; }
 module_t *module_of(const void *p) { (void)p; return NULL; }
-module_t g_mod[MAX_MOD]; int g_nmod;
+module_t *g_mod; int g_nmod;
 void svc_thread_dump(void) {}
 uint64_t now_ns(void) { return bp_now(); }
 static int checks, failed;
@@ -55,5 +55,3 @@ int main(void){@autoreleasepool{mtl_init();
     const uint32_t uncached=NVN_MEMORY_POOL_FLAGS_CPU_UNCACHED|NVN_MEMORY_POOL_FLAGS_GPU_CACHED,cached=NVN_MEMORY_POOL_FLAGS_CPU_CACHED|NVN_MEMORY_POOL_FLAGS_GPU_CACHED;
     run(NVN_FORMAT_RGBA_ASTC_6x6,9750,uncached,0);run(NVN_FORMAT_RGBA_ASTC_6x6_SRGB,9751,uncached,0);run(NVN_FORMAT_RGBA_ASTC_6x6,9752,cached,3);
     printf("t_initial_uncached: %d checks, %d failed\n",checks,failed);return failed!=0;}}
-
-int acnh_wide_present_full(void) { return 0; }

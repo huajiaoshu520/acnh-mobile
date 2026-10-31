@@ -56,7 +56,7 @@ def inputs(settings):
     for line in provenance.read_text().splitlines():
         digest,name=line.split(None,1)
         candidate=(root/'dm/tools'/name).resolve()
-        allowed=(candidate.parent==(root/'dm/tools').resolve() and candidate.name in ('patch_nso.py','nso_code.py','nso_asm.py','sdk_patches.py')) or (candidate.name=='patches.py' and candidate.parent.parent==(root/'dm/games').resolve())
+        allowed=(candidate.parent==(root/'dm/tools').resolve() and candidate.name in ('patch_nso.py','nso.py','nso_code.py','nso_asm.py','sdk_patches.py','ue_cvar.py','ue_malloc.py','ue_region.py','loader_census.py')) or (candidate.name=='patches.py' and candidate.parent.parent==(root/'dm/games').resolve())
         if not allowed or not candidate.is_file() or sha(candidate)!=digest:raise ValueError('改写工具已变化，请重新准备程序。')
     libs=list(cache.glob('*_b.metallib'))
     wanted={c[3] for line in (profile/'shader_map.tsv').read_text().splitlines() if len(c:=line.split('\t'))>4 and c[0].endswith('.bin') and c[2]!='geometry'}
@@ -77,7 +77,7 @@ def inspect_ipa(path,version,kind):
         info=plistlib.loads(z.read(info_name))
         if (info.get('CFBundleShortVersionString'),info.get('CFBundleVersion'))!=(version['version'],str(version['build'])):raise ValueError('IPA 版本号不匹配。')
         if info.get('CFBundleIdentifier')!='org.acnhmobile.experimental' or info.get('MinimumOSVersion')!='26.0':raise ValueError('IPA 应用标识或系统版本不匹配。')
-        if any('/romfs/' in n.lower() for n in names):raise ValueError('RomFS 不应装入 IPA。')
+        if any('/romfs/' in n.lower() or '/aoc/' in n.lower() or n.lower().endswith(('/romfs.img','.data','.nsp','.xci','.nsz','.xcz','.keys')) for n in names):raise ValueError('游戏数据必须保存在外置数据包中，不应装入 IPA。')
         if kind=='private' and not any('/msl/' in n and n.endswith('.metallib') for n in names):raise ValueError('完整 IPA 缺少已转换的着色器。')
     return sha(path)
 
@@ -245,7 +245,7 @@ def cleanup_success(work,job,output,data,raw,protected=()):
 
 
 def main():
-    ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('mode',choices=['ipa','ipa-data','mac-app']);ap.add_argument('--platform',choices=['ios','mac'],default='ios',help='Mac is a development-only build with no IPA');ap.add_argument('--plan',action='store_true');ap.add_argument('--select',action='store_true',help='选择游戏目录和 prod.keys');ap.add_argument('--game-dir',type=Path);ap.add_argument('--keys',type=Path);ap.add_argument('--output-dir',type=Path,help='生成结果的保存文件夹');ap.add_argument('--config',type=Path,default=CONFIG);a=ap.parse_args()
+    ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('mode',choices=['ipa','ipa-data','mac-app']);ap.add_argument('--platform',choices=['ios','mac'],default='ios',help='Mac is a development-only build with no IPA');ap.add_argument('--plan',action='store_true');ap.add_argument('--gpu',help='Offline pipeline architectures, e.g. g18p or none');ap.add_argument('--select',action='store_true',help='选择游戏目录和 prod.keys');ap.add_argument('--game-dir',type=Path);ap.add_argument('--keys',type=Path);ap.add_argument('--output-dir',type=Path,help='生成结果的保存文件夹');ap.add_argument('--config',type=Path,default=CONFIG);a=ap.parse_args()
     settings=json.loads(a.config.read_text()) if a.config.is_file() else {}
     if a.mode=='mac-app':a.platform='mac'
     settings['platform']=a.platform
@@ -304,6 +304,7 @@ def main():
                 print('Mac 开发构建完成：'+str(job/'mac-work/run-mac.command'),flush=True);return
             made=job/'complete.ipa';command=[sys.executable,data['build_root']/'tools/public_setup.py','build']
             for key in ('patched','romfs','shaders','font'):command+=['--'+key,data[key]]
+            if (gpu:=a.gpu or settings.get('pso_gpus')) is not None:command+=['--gpu',gpu]
             command+=['--work',job/'build-work','--output',made];run(command,log)
             digest=inspect_ipa(made,version,kind)
             if a.mode=='ipa-data':

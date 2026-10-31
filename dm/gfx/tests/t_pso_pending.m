@@ -5,7 +5,7 @@
 
 void *front_metal_layer(void) { return NULL; }
 module_t *module_of(const void *p) { (void)p; return NULL; }
-module_t g_mod[MAX_MOD]; int g_nmod;
+module_t *g_mod; int g_nmod;
 void svc_thread_dump(void) {}
 uint64_t now_ns(void) { return bp_now(); }
 
@@ -337,18 +337,18 @@ static void test_nil_prediction_falls_back_then_predicts(void) {
     g_exec_next = NULL; reset_queue(); reset_pso_cache();
 }
 
-// Look-ahead scans later scissors but must leave the demanded draw's clip unchanged.
-static void test_prediction_preserves_scissor(void) {
-    for (int enabled = 0; enabled <= 1; enabled++) {
-        p_scissor original = {3, 5, 101, 79}, later = {60, 70, 8, 9};
-        R.sc = original; R.has_sc = enabled;
-        uint8_t stream[128] = {0}; size_t used = 0;
-        append_op(stream, &used, OP_SCISSOR, &later, sizeof later);
-        append_op(stream, &used, OP_END, NULL, 0);
-        g_exec_next = stream;
+static void test_prediction_restores_scissor(void) {
+    state_reset();
+    uint8_t stream[64] = {0}; size_t used = 0;
+    p_scissor future = {0, 0, 50, 28};
+    append_op(stream, &used, OP_SCISSOR, &future, sizeof future);
+    append_op(stream, &used, OP_END, NULL, 0);
+    p_scissor original = {13, 17, 111, 119};
+    for (int known = 0; known <= 1; known++) {
+        R.sc = original; R.has_sc = known; g_exec_next = stream;
         pso_predict_rest();
-        EXPECT_TRUE("lookahead preserves the demanded draw scissor rectangle", !memcmp(&R.sc, &original, sizeof original));
-        EXPECT_EQ("lookahead preserves whether the demanded draw has a scissor", enabled, R.has_sc);
+        EXPECT_EQ("prediction preserves current scissor", 0, memcmp(&R.sc, &original, sizeof original));
+        EXPECT_EQ("prediction preserves scissor validity", known, R.has_sc);
     }
     g_exec_next = NULL;
 }
@@ -361,7 +361,7 @@ int main(void) {
         test_two_active_exact_take_and_release();
         test_full_table_reclaims_done_not_running();
         test_nil_prediction_falls_back_then_predicts();
-        test_prediction_preserves_scissor();
+        test_prediction_restores_scissor();
         printf("== %d PSO pending checks, %d failed ==\n", g_checks, g_failed);
         return g_failed != 0;
     }

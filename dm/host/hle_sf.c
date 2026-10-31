@@ -41,7 +41,6 @@ HLE_FORCE("_ZN2nn2sf4hipc20ConnectToHipcServiceEPNS_3svc6HandleEPKc", "connect t
     return 0xe15u;   // sm ResultNotRegistered
 }
 HLE_FORCE("_ZN2nn2sf4hipc24CloseClientSessionHandleENS_3svc6HandleE", "close a session (kernel handle) → the host session", void, h_sf_Close, uint32_t h) {
-    if(h==ACNH_CAPS_HANDLE || h==ACNH_CAPSU_HANDLE)return;
     int i = sf_slot(h);
     if (i < 0) { LOG("[RED] sf: CloseClientSessionHandle on %#x, not a host session", h); return; }
     pthread_mutex_lock(&g_sf_mu); g_sf[i].used = 0; pthread_mutex_unlock(&g_sf_mu);

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Super Smash Bros. Ultimate's data.arc: the file-system table and the current file of each path (files), and a file's bytes (read). Used by shader_split.py (its shaders) and
 dm/tools/nro_collect.py (its NROs). The paths are only Hash40 values (CRC-32 of the path and its length); the extension Hash40 (crc32(b'nro') | 3 << 32) tells a file's kind."""
-import struct, sys
+import os, struct, sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../tools'))
+from romfs import os, open
 
 MAGIC = struct.pack('<Q', 0xABCDEF9876543210)
 ZSTD_MAGIC = bytes.fromhex('28b52ffd')
@@ -15,7 +17,7 @@ def zstd_mod():   # compression.zstd from Python 3.14, its backport before (pip 
     return zstd
 
 
-def files(path):
+def files(path, regions=False):
     """Super Smash Bros. Ultimate's data.arc (17.6 GB at 13.0.5): u64 magic 0xABCDEF9876543210, then u64 offsets of the music section, the file section, the shared file section,
     the file system table and its search table. The table is {u32 data start (0x10), u32 size, u32 stored size, u32 section size} and one zstd frame. Inflated: a 0x58-byte header
     (u32 table size, path count, path-to-info index count, directory count, directory offset count, child hash count, file info count, info-to-data count, file data count,
@@ -27,7 +29,9 @@ def files(path):
     file infos (16: path index, path-to-info index, info-to-data index, flags), info-to-data (12: directory offset index, file data index, load type) and file data (16: offset in the
     directory / 4, stored size, size, flags; 3 = zstd). A file's data is at file section + its directory offset + 4 × its offset. The table ends with a section the lookups do not use.
     The update rewrote the archive in place and kept the superseded copies, which the file infos still reach (764 NROs for 98 paths); following each path to its file info gives the
-    current file only. → [(path Hash40, absolute offset, stored size, size, extension Hash40)] in offset order, one per data, or None for another file"""
+    current file only. A regional file (file info flag 0x8000) has one info-to-data entry per region from its index on (the header's region count, 14): regions=True gives every
+    region's data (the shader split: 128 of 13.0.5's effect shaders exist only in other regions' files), else the first.
+    → [(path Hash40, absolute offset, stored size, size, extension Hash40)] in offset order, one per data, or None for another file"""
     with open(path, 'rb') as f:
         h = f.read(0x38)
         if h[:8] != MAGIC: return None
@@ -53,15 +57,16 @@ def files(path):
         if k >= n_idx: continue
         fii = struct.unpack_from('<I', fs, IDX + 8 * k + 4)[0]
         if fii >= n_fi: continue
-        f2di = struct.unpack_from('<I', fs, FI + 16 * fii + 8)[0]
-        if f2di >= n_f2d: continue
-        doi, fdi = struct.unpack_from('<II', fs, F2D + 12 * f2di)
-        if doi >= n_do or fdi >= n_fd: continue
-        off_in, csz, usz = struct.unpack_from('<3I', fs, FD + 16 * fdi)
-        at = file_off + struct.unpack_from('<Q', fs, DO + 0x1c * doi)[0] + 4 * off_in
-        if at in seen or not csz: continue
-        ec, ew = struct.unpack_from('<II', fs, P + 32 * i + 8)
-        seen.add(at); out.append((c | (w & 0xff) << 32, at, csz, usz, ec | (ew & 0xff) << 32))
+        f2d0, flags = struct.unpack_from('<II', fs, FI + 16 * fii + 8)
+        for f2di in range(f2d0, f2d0 + (fs[0x38] if regions and flags & 0x8000 else 1)):
+            if f2di >= n_f2d: break
+            doi, fdi = struct.unpack_from('<II', fs, F2D + 12 * f2di)
+            if doi >= n_do or fdi >= n_fd: continue
+            off_in, csz, usz = struct.unpack_from('<3I', fs, FD + 16 * fdi)
+            at = file_off + struct.unpack_from('<Q', fs, DO + 0x1c * doi)[0] + 4 * off_in
+            if at in seen or not csz: continue
+            ec, ew = struct.unpack_from('<II', fs, P + 32 * i + 8)
+            seen.add(at); out.append((c | (w & 0xff) << 32, at, csz, usz, ec | (ew & 0xff) << 32))
     return sorted(out, key=lambda e: e[1])
 
 

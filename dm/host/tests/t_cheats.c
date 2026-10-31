@@ -19,8 +19,7 @@
 
 // the loader's module table (loader.c allocates it from the NSO list and the NRO manifest), here a fixed array: "main"
 // and the second modules "sdk" and "sdk2"
-module_t g_mod[MAX_MOD]; int g_nmod;
-#define mods g_mod
+static module_t mods[3]; module_t *g_mod = mods; int g_nmod;
 uint64_t now_ns(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return (uint64_t)t.tv_sec * 1000000000ull + (uint64_t)t.tv_nsec; }
 void dm_guest_write_prepare(void *addr, size_t len) { (void)addr; (void)len; }   // no dirty-page tracking in the test
 static uint8_t *heap; static size_t heap_open;   // the guest heap (hle_svc.c): a plain buffer, opened in full

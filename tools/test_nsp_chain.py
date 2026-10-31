@@ -14,7 +14,7 @@ import unittest
 from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
-SCRIPT = REPO / 'tools/upstream/nsp_pipeline.py'
+SCRIPT = REPO / 'scripts/build_ipa_from_nsp.py'
 spec = importlib.util.spec_from_file_location('build_ipa_from_nsp', SCRIPT)
 nsp = importlib.util.module_from_spec(spec); spec.loader.exec_module(nsp)
 
@@ -34,8 +34,10 @@ class Header(Base):
         (self.repo / 'dm/gfx/nvn').mkdir(parents=True)
         (self.repo / 'dm/gfx/tools').symlink_to(REPO / 'dm/gfx/tools'); (self.repo / 'dm/ios').symlink_to(REPO / 'dm/ios')
         (self.repo / 'dm/games').symlink_to(REPO / 'dm/games')
+        (self.repo / 'dm/third_party').symlink_to(REPO / 'dm/third_party')
         self.h = self.repo / nsp.CHAIN_H
         shutil.copy(REPO / nsp.CHAIN_H, self.h)
+        shutil.copy(REPO / 'dm/gfx/nvn/dmsh_abi.h', self.h.parent / 'dmsh_abi.h')
         self.env = {k: v for k, v in os.environ.items() if k != 'DM_GAME'}   # the version needs no game
 
     def header(self):

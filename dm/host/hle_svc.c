@@ -84,7 +84,8 @@ static size_t image_bytes(void) { size_t n = 0; for (int i = 0; i < g_nmod; i++)
 // Giant bss (modules with the patch area before the base, patch_nso.py FAR): the image bytes beyond the file part. Used memory was reported as "heap + 64 MB", where the 64 MB covers ordinary modules' code and data (Mario's two modules are about 74 MB together,
 // and the heap it opens = pool − 64 MB − 1.75 GB virtual address memory − 1 MB = 0x5be00000, as on hardware); Metroid Dread's main has about 1.8 GB of bss, the engine's static heap, which the Switch counts as used;
 // without it the game asks for pool − 64 MB = 3.15 GB of heap
-static size_t big_bss_bytes(void) { size_t n = 0; for (int i = 0; i < g_nmod; i++) if (g_mod[i].patch_off < 0) n += g_mod[i].size - g_mod[i].file_image_len; return n; }
+// Like image_bytes, exclude NROs: their buffers already belong to the game's heap. Counting every offline-mapped NRO's bss made FFX/X-2's used memory exceed its pool before any LoadModule.
+static size_t big_bss_bytes(void) { size_t n = 0; for (int i = 0; i < g_nmod; i++) if (!g_mod[i].nro && g_mod[i].patch_off < 0) n += g_mod[i].size - g_mod[i].back_len - g_mod[i].file_image_len; return n; }
 
 // For memory accounting (memstat.m): the range of the whole guest address space block (base = NULL when not initialized)
 void svc_guest_range(uint8_t **base, size_t *size) { *base = g_as; *size = g_reserve; }
@@ -233,21 +234,33 @@ static void module_readonly_run(uint64_t off, uint64_t start, uint64_t end,
 static void module_data_query(const module_t *m, uint64_t off, uint64_t *lo, uint64_t *hi, uint64_t *perm) {
     module_readonly_run(off, 0, (m->text_end + 0x3fff) & ~UINT64_C(0x3fff), lo, hi, perm);
     if (m->patch_off > 0) module_readonly_run(off, (uint64_t)m->patch_off & ~UINT64_C(0x3fff), m->size, lo, hi, perm);
+    if (m->back_len) module_readonly_run(off, m->back_off, m->back_off + m->back_len, lo, hi, perm);
     module_readonly_run(off, m->key_page_off, m->key_page_off + m->key_page_size, lo, hi, perm);
 }
 static int map_source_backed(uint64_t src, uint64_t size) {
     if (memory_contains((uintptr_t)g_heap, g_heap_cur, src, size)) return 1;
+    int dm_ue_heap_owns(uint64_t a, uint64_t n);   // Unreal's heap on a host malloc zone outside the guest block (hle_uemalloc.c): Unreal allocates its threads' stacks there
+    if (dm_ue_heap_owns(src, size)) return 1;
     if (memory_contains((uintptr_t)g_alias, g_alias_cap, src, size))
         return !alias_unmapped(src - (uintptr_t)g_alias, size);
     module_t *m = module_of((void *)(uintptr_t)src);
-    // NRO reload restores backing outside this lock; it cannot be borrowed until
-    // that lifetime is integrated. Static module data is permanent.
-    if (!m || m->nro || !m->loaded || !memory_contains((uintptr_t)m->base, m->size, src, size)) return 0;
+    // Active NRO data is valid backing too (FFX/X-2's launcher allocates thread stacks from its bss). Deactivation below checks borrowers under this same lock before reload can restore it.
+    if (!m || !m->loaded || !memory_contains((uintptr_t)m->base, m->size, src, size)) return 0;
     uint64_t lo = m->data_off ? m->data_off : (m->ro_off ? m->ro_off : m->text_end);
-    uint64_t hi = m->patch_off > 0 ? (uint64_t)m->patch_off : m->size;
+    uint64_t hi = m->patch_off > 0 ? (uint64_t)m->patch_off : m->back_len ? m->back_off : m->size;
     uint64_t off = src - (uintptr_t)m->base, perm = 3;
     module_data_query(m, off, &lo, &hi, &perm);
     return perm == 3 && hi >= lo && memory_contains(lo, hi - lo, off, size);
+}
+int svc_nro_deactivate(module_t *m) {
+    pthread_mutex_lock(&g_map_lock);
+    uint64_t base = (uintptr_t)m->base;
+    for (int i = 0; i < g_nmap; i++)
+        if (g_map[i].src < base + m->size && base < g_map[i].src + g_map[i].size) {
+            pthread_mutex_unlock(&g_map_lock); return 0;
+        }
+    m->loaded = 0;
+    pthread_mutex_unlock(&g_map_lock); return 1;
 }
 static void map_source_query(uint64_t addr, uint64_t *base, uint64_t *size, uint32_t *attr, uint64_t *perm) {
     uint64_t lo = *base, remaining = *size; // the final free page can end at 2^64
@@ -295,8 +308,8 @@ static region_t *g_rgn; static int g_nrgn, g_rgn_cap; static pthread_mutex_t g_r
 static _Thread_local uint64_t t_rgn_size, t_rgn_via; static _Thread_local char t_rgn_who[40];
 // Where a request at an sdk function's entry gate returns to in the game: buf gets "main+0x…", *via the outermost sdk return address on the way (0 = none)
 static void guest_caller(const uint64_t *r, char *buf, size_t n, uint64_t *via) {
-    // at the function's entry the return address is the x30 the gate block pushed above the gate's register frame (regs + 800: x29, x30; entry.S), x30 itself holds the gate's own
-    uint64_t lr = r[101], fp = r[29]; module_t *m = module_of((void *)(uintptr_t)lr);
+    // at the function's entry the return address is the x30 the gate block pushed (at the block's sp, regs[99]: x29, x30; entry.S), x30 itself holds the gate's own
+    uint64_t lr = ((const uint64_t *)(uintptr_t)r[99])[1], fp = r[29]; module_t *m = module_of((void *)(uintptr_t)lr);
     *via = 0;
     for (int i = 0; i < 32 && m && !strcmp(m->name, "sdk"); i++) {
         *via = lr - (uint64_t)(uintptr_t)m->base;   // AArch64 frame records: [fp] = the caller's fp, [fp + 8] = its return address
@@ -341,24 +354,41 @@ static void region_free(uint64_t *r, int param) {
 // it instead (Absolum's .NET garbage collector takes 1.5 GB after it). The SDK lays the region out from that size, so it holds; the pool, not the region, bounds what the heap
 // can map. A workaround for the iPhone's address space, not the game: with room for the request (a Switch-sized DM_ALIAS_SIZE) nothing changes. Found by symbol in every sdk
 #define STDALLOC_LATER 0x10000000ull
-static void stdalloc_init(uint64_t *r, int param) {
-    (void)param;
-    if (r[1]) return;   // a heap over memory the game passes in: no address region
+// What the alias region has room for in one more region: past the end of the regions made so far, less STDALLOC_LATER for those made later, in 32 MB steps (0 = none)
+static uint64_t alias_room(void) {
     mem_init();
     uint64_t reach = 0x3e00000;   // the node area with the SDK-wide cut (sdk_patches.py); a build without it keeps 1 GB, and a 12 GB request fails there as before
     pthread_mutex_lock(&g_rgn_lock);
     for (int i = 0; i < g_nrgn; i++) if (g_rgn[i].off + g_rgn[i].size > reach) reach = g_rgn[i].off + g_rgn[i].size;
     pthread_mutex_unlock(&g_rgn_lock);
-    uint64_t cap = DM_GAME_STDALLOC_CAP ? DM_GAME_STDALLOC_CAP : g_alias_cap > reach + STDALLOC_LATER ? (g_alias_cap - reach - STDALLOC_LATER) & ~0x1ffffffull : 0;
+    return g_alias_cap > reach + STDALLOC_LATER ? (g_alias_cap - reach - STDALLOC_LATER) & ~0x1ffffffull : 0;
+}
+static void stdalloc_init(uint64_t *r, int param) {
+    (void)param;
+    if (r[1]) return;   // a heap over memory the game passes in: no address region
+    uint64_t cap = DM_GAME_STDALLOC_CAP ? DM_GAME_STDALLOC_CAP : alias_room();
     if (!cap || r[2] <= cap) return;
     char who[40]; uint64_t via; guest_caller(r, who, sizeof who, &via);
     LOG("[mem] StandardAllocator::Initialize(nullptr, %.2f GB) returning to %s: %.2f GB of address space, %s", r[2] / 1073741824.0, who, cap / 1073741824.0,
         DM_GAME_STDALLOC_CAP ? "the profile's stdalloc_cap" : "what the alias region has room for (the profile key stdalloc_cap sets it)");
     r[2] = cap;
 }
+// ---- Unreal's engine region ----
+// Unreal Engine 4 / 5's nninitStartup reserves one address region for the engine, which the engine hands out itself: 62 GB by default (16 GB in Unreal Engine 4.18), made for the
+// Switch's 64 GB alias region. The rewriter's gate on the store of its size right before the reservation (dm/tools/ue_region.py, in any Unreal main) gives it what the alias region
+// has room for, as StandardAllocator's gate above: the size variable (the register the gate number names) and the request (x1) both take it, so the engine lays the region out from
+// the size it got. -SwitchVirtualAddressSpaceSize= gives a size too, but UE 4.26 then skips the reservation (Pikmin 4); a smaller size given that way stays. A workaround for the
+// iPhone's address space, not the game: with room for the request (a Switch-sized DM_ALIAS_SIZE) nothing changes
+static void ue_region(uint64_t *r, int param) {
+    if (param < 1 || param > 28 || param == 18) return;
+    uint64_t cap = alias_room();
+    if (!cap || r[param] <= cap) return;
+    LOG("[mem] Unreal's engine region: %.2f GB asked, %.2f GB of address space, what the alias region has room for", r[param] / 1073741824.0, cap / 1073741824.0);
+    r[param] = r[1] = cap;
+}
 __attribute__((constructor)) static void regions_attach(void) {
     gate_obs_set(OBS_REGION_ASK, region_ask); gate_obs_set(OBS_REGION_GOT, region_got); gate_obs_set(OBS_REGION_FREE, region_free);
-    gate_obs_set(OBS_STDALLOC_INIT, stdalloc_init);
+    gate_obs_set(OBS_STDALLOC_INIT, stdalloc_init); gate_obs_set(OBS_UE_REGION, ue_region);
 }
 // Pages set in a bitmap's bits [lo, hi), a word at a time: a 62 GB region is 16 million pages, counted under g_map_lock, which every MapPhysicalMemory takes
 static uint64_t bits_set(_Atomic uint64_t *b, uint64_t lo, uint64_t hi) {
@@ -417,7 +447,9 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
     switch (num) {
     case 0x01: {  // SetHeapSize(out_addr*, size)  → x1 = heap base
         size_t size = regs[1];
-        if (size > g_heap_cap) { LOG("SetHeapSize OOM: req %#zx > cap %#zx", size, g_heap_cap); regs[0] = 0xD401; return 0; }
+        // Larger than the heap region: ResultOutOfMemory (0xD001), as Horizon's KPageTable::SetHeapSize returns. nn::os::SetMemoryHeapSize turns only that, 103 and LimitReached into
+        // os::ResultOutOfMemory and aborts on anything else; Donkey Kong Country: Tropical Freeze finds its heap size by a binary search between 3 and 6 GB, which needs the error back
+        if (size > g_heap_cap) { LOG("SetHeapSize OOM: req %#zx > cap %#zx", size, g_heap_cap); regs[0] = 0xD001; return 0; }
         pthread_mutex_lock(&g_map_lock);
         size_t previous = g_heap_cur, image = image_bytes();
         if (size < previous && map_source_busy((uintptr_t)g_heap + size, previous - size)) {
@@ -458,7 +490,7 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
         pthread_mutex_lock(&g_map_lock);
         if (map_find(dst, size) || map_source_busy(src, size) || !map_source_backed(src, size)) result = 0xD401;
         else if (g_nmap == MAX_MAP) result = 0xCE01;
-        if (result) { pthread_mutex_unlock(&g_map_lock); regs[0] = result; return 0; }
+        if (result) { pthread_mutex_unlock(&g_map_lock); regs[0] = result; LOG("[RED] MapMemory refused (%#x): %#llx <- %#llx +%#llx", result, (unsigned long long)dst, (unsigned long long)src, (unsigned long long)size); return 0; }
         // Apple pages are 16K, Horizon pages 4K: the accessible region is extended to a 16K boundary (the extra pages opened are unused pages of the same region, semantics unaffected)
         uint64_t mask = (size_t)getpagesize() - 1;
         uint64_t lo = dst & ~mask, hi = (dst + size + mask) & ~mask;
@@ -525,9 +557,10 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
             // The SDK's C++ exception unwinding (nn::ro::detail::GetExceptionInfo) walks back from the PC over "Code+RX" regions to find the module start, forward over Code then CodeData to find its end, then reads MOD0 at the module start for .eh_frame_hdr.
             // Previously "the 4 KiB page around it, Code+RX" was reported: the backward walk ran on into other memory, found no MOD0 and aborted (Engage's IL2CPP throws a C++ exception for every managed exception).
             // The rewriter's patch area is reported as CodeData+RX: modules sit back to back in the host, and an executable patch area reported as Code+RX would merge the previous module into the backward walk
-            // Modules with the patch area before the base (patch_off < 0): the patch area is reported alone as CodeData+RX, and data and bss run to the end of the image
+            // Modules with the patch area before the base (patch_off < 0): the patch area is reported alone as CodeData+RX, and data and bss run to the end of the image, or to a back patch area
+            // (patch_nso.py TWO), which is reported as CodeData+RX like a patch area after the image
             module_t *mm = module_of(a); uint64_t off = (uint64_t)(a - mm->base), mb = (uint64_t)mm->base;
-            uint64_t ro = mm->ro_off ? mm->ro_off : mm->text_end, da = mm->data_off ? mm->data_off : ro, pa = mm->patch_off > 0 ? (uint64_t)mm->patch_off : mm->size;
+            uint64_t ro = mm->ro_off ? mm->ro_off : mm->text_end, da = mm->data_off ? mm->data_off : ro, pa = mm->patch_off > 0 ? (uint64_t)mm->patch_off : mm->back_len ? mm->back_off : mm->size;
             if (a < mm->base)  { base = mb + mm->patch_off; size = mm->patch_len; state = 4/*CodeData*/; perm = 5; }
             else if (off < ro) { base = mb;      size = ro;            state = 3/*Code*/;     perm = 5; }
             else if (off < da) { base = mb + ro; size = da - ro;       state = 3/*Code*/;     perm = 1; }

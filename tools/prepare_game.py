@@ -15,9 +15,14 @@ def picker(kind):
     return p
 
 def load_pipeline():
-    spec=importlib.util.spec_from_file_location('upstream_nsp',ROOT/'tools/upstream/nsp_pipeline.py')
+    spec=importlib.util.spec_from_file_location('upstream_nsp',ROOT/'scripts/build_ipa_from_nsp.py')
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
     module.BuildError=ValueError
+    official_mac_run=module.mac_run
+    def mac_run(py,repo,work,game,patched,msl,aoc,gfx,lang,env,logs,g,env_file=''):
+        host,font=module.mac_host(py,repo,work,env,logs,g)
+        return official_mac_run(work,game,patched,host,font,msl,aoc,gfx,lang,env,logs,g,env_file)
+    module.mac_run=mac_run
     return module
 
 def raw_plan(game,keys):
@@ -39,7 +44,7 @@ def cache_key(family):
         h.update(p.name.encode());h.update(str(p.stat().st_size).encode());h.update(str(p.stat().st_mtime_ns).encode())
     for base in ('tools','dm/tools','dm/gfx/tools','dm/games/'+TITLE,'dm/third_party/ryujinx'):
         for p in sorted((ROOT/base).rglob('*')):
-            if p.is_file() and p.name not in ('c1_full.tsv','cb_extent.tsv') and p.suffix in ('.py','.cs','.csproj','.tsv','.h','.lock') and not any(x in ('obj','bin','__pycache__') for x in p.parts):h.update(p.read_bytes())
+            if p.is_file() and p.name not in ('c1_full.tsv','cb_extent.tsv') and p.suffix in ('.py','.cs','.csproj','.tsv','.h','.lock','.metal') and not any(x in ('obj','bin','__pycache__') for x in p.parts):h.update(p.read_bytes())
     return h.hexdigest()[:20]
 
 def translator_preflight(xlate,env,log):
@@ -90,16 +95,19 @@ def prepare(game,keys,work,run,log,platform='ios'):
     u.run(['dotnet','publish',repo/'dm/gfx/tools/dmsh_xlate','-c','Release','-o',xlate.parent],logs/'translator.log',env=env);u.PROG.end()
     dotnet=shutil.which('dotnet')
     if dotnet:env.setdefault('DOTNET_ROOT',str(Path(dotnet).resolve().parent))
+    cross=repo/'dm/gfx/tools/spirv_cross_bin/spirv-cross'
+    if not cross.is_file():u.run(['sh',repo/'dm/gfx/tools/spirv_cross_bin/build.sh',cache/'spirv-cross-build'],logs/'spirv-cross.log',env=env)
     env['XLATE']=str(xlate)
     translator_preflight(xlate,env,logs/'translator-preflight.log')
     u.PROG.stage('build extraction tool')
     nx=u.build_nx_extract(repo,cache,logs,env);u.PROG.end()
+    family=u.decompress_nsz(game,int(TITLE,16),family,keys,env,work=cache)
     ex=u.extract(nx,keys,cache/'extract','3.0.3',family['base'],family['updates'][0][1],None,logs,g)
     bad=u.build_mismatch(ex,'v2228224',g)
     if bad:raise ValueError('游戏版本不匹配：'+', '.join(bad))
     patched=cache/'patched';u.rewrite(sys.executable,repo,ex/'ExeFS',patched,env,logs,g)
-    for flag in ('--update-lock','--header'):
-        u.run([sys.executable,repo/'dm/gfx/tools/dmsh_chain.py',flag],logs/('chain'+flag+'.log'),env=env)
+    u.run([sys.executable,repo/'dm/gfx/tools/tool_lock.py','--update-lock'],logs/'tool-lock.log',env=env)
+    u.chain_header(sys.executable,repo,env,logs)
     sh=cache/'shader'
     key=u.split_shaders(sys.executable,repo,[ex/'RomFS'],[ex/'ExeFS/main'],sh/'pkg',env,logs,g)
     ios=u.build_shaders(sys.executable,repo,sh,xlate,env,logs,g,pkg_key=key,mac=platform=='mac')

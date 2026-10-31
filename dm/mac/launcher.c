@@ -2,6 +2,7 @@
 // The host is not exec'ed: macOS privacy checks (TCC) attribute a child's file access to the app that launched it, while a launcher that hands its process over (a shell script exec'ing
 // dmhost) gets EPERM on every open on a removable volume, with no prompt, signed or not. The launcher forwards SIGTERM / SIGINT / SIGHUP to the host and returns its exit code.
 // Bundle layout: Resources/romfs.img (the game's RomFS image; legacy romfs/ also supported), Resources/msl/<b-chain | vk | gl> (the Mac shader libraries), Resources/aoc/<index> (DLC), Resources/pso (the pipeline archive made
+// offline, handed to the host as DM_PSO_BUNDLE as the iOS app's main.m does), Resources/dm (the rewritten modules, the shader tables and pairs, font/, env.txt). Saves, the pipeline list and temporary files go to ~/Library/Application Support/nxnative/<title ID>/, the host's output to ~/Library/Logs/nxnative/<title ID>.log
 // (the previous run's kept as <title ID>.prev.log). Environment switches: one KEY=VALUE per line in <Application Support folder>/env.txt, then Resources/dm/env.txt (the first one wins; neither
 // replaces a variable already set), as the iOS app reads Documents/env.txt and dm/env.txt. Then the player's saved choices: launcher.<VAR> strings in the app's preferences domain (its bundle ID), which a
 // front end or a settings window writes, each checked against the bundle's settings (Info.plist DMSettings, from launcher.json) and used only for a variable still unset; DM_SAVED_CHOICES=0 ignores them.
@@ -23,6 +24,7 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include "romfs_image.h"
 #include "save_sync.h"
 
 extern char **environ;
@@ -98,7 +100,7 @@ static int saved_accepted(CFDictionaryRef rule, CFStringRef v, const char *s) { 
     if (!lo || !hi || CFGetTypeID(lo) != CFNumberGetTypeID() || CFGetTypeID(hi) != CFNumberGetTypeID()) return 0;
     CFNumberGetValue(lo, kCFNumberDoubleType, &l); CFNumberGetValue(hi, kCFNumberDoubleType, &h);
     char *end; double x = strtod(s, &end);
-    return *s && !isspace((unsigned char)*s) && !*end && x == x && x >= l && x <= h;   // as the iPhone's Double(): no leading space, no NaN
+    return *s && !isspace((unsigned char)*s) && !strpbrk(s, "xX") && !*end && x == x && x >= l && x <= h;   // as Setting.accepts (LauncherSettings.swift): no leading space, no hex, no NaN
 }
 
 static CFArrayRef setting_rules(void) {   // Info.plist DMSettings (pack_app.py, from launcher.json): each setting's variable and the values it takes
@@ -155,9 +157,14 @@ int main(int argc, char **argv) {
     if (!info_string("CFBundleName", name, sizeof name)) snprintf(name, sizeof name, "nxnative");
     info_string("DMRomfsMarker", marker, sizeof marker); info_string("DMLanguage", lang, sizeof lang);
     if (!info_string("DMTitleID", id, sizeof id) || strchr(id, '/')) { alert(name, "This app has no title ID in its Info.plist (DMTitleID): pack it again with build_ipa_from_nsp.py --platform mac-app."); return 1; }
-    struct stat st; snprintf(p, sizeof p, "%s/%s", romfs, marker); int valid_romfs = !stat(p, &st);
+    struct stat st; snprintf(p, sizeof p, "%s/romfs.img", res);
+    int valid_romfs;
+    if (!stat(p, &st)) {
+        romfs_img *image = romfs_image_open(p); valid_romfs = image != NULL;
+        romfs_image_close(image); snprintf(romfs, sizeof romfs, "%s", p);
+    } else { snprintf(p, sizeof p, "%s/%s", romfs, marker); valid_romfs = !stat(p, &st); }
     if (access(host, X_OK) || !valid_romfs || !modules_present(dm)) {
-        alert(name, "The game data inside this app is missing or incomplete (Contents/Resources/romfs, Contents/Resources/dm or Contents/MacOS/dmhost): pack it again with build_ipa_from_nsp.py --platform mac-app.");
+        alert(name, "The game data inside this app is missing or incomplete (Contents/Resources/romfs.img, Contents/Resources/dm or Contents/MacOS/dmhost): pack it again with build_ipa_from_nsp.py --platform mac-app.");
         return 1;
     }
     const char *home = getenv("HOME"); if (!home || !*home) return 1;
@@ -189,6 +196,7 @@ int main(int argc, char **argv) {
     snprintf(p, sizeof p, "%s/font", dm); setenv("DM_FONT_DIR", p, 0);
     snprintf(p, sizeof p, "%s/shader_map.tsv", dm); if (!stat(p, &st)) setenv("DM_NVN_SHMAP", p, 0);
     snprintf(p, sizeof p, "%s/aoc", res); if (!stat(p, &st)) setenv("DM_AOC_DIR", p, 0);
+    snprintf(p, sizeof p, "%s/pso", res); if (!stat(p, &st)) setenv("DM_PSO_BUNDLE", p, 0);   // the bases of every shader pair: the first start builds none
     if (*lang) setenv("DM_LANG", lang, 0);
     setenv("DM_WINDOW", "1", 0); setenv("DM_AUDIO", "1", 0);
     if (chdir(sup)) { fprintf(stderr, "[RED] launcher: cannot enter %s\n", sup); return 1; }

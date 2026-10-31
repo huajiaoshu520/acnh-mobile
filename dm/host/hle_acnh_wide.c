@@ -31,8 +31,8 @@ static wide_record *record(wide_record *table,uintptr_t object) {
 static void perspective(uint64_t *r,int param) {
     (void)param;uintptr_t base=main_base(),object=r[0];if(!base||!object||*(uintptr_t*)object!=base+0x4a65608)return;
     // site_obs pushes the original x29/x30, then dm_gate saves an 800-byte frame.
-    // r[30] is the gate's own LR; the original guest LR is at r+800+8.
-    uintptr_t lr=r[101]-base;if(lr==0x376d224)return; // HUD minimap: preserve its own view.
+    // The dedicated gate frame stores the original guest SP in r[99].
+    uintptr_t lr=((const uint64_t *)(uintptr_t)r[99])[1]-base;if(lr==0x376d224)return; // HUD minimap: preserve its own view.
     pthread_mutex_lock(&wide_lock);wide_record *c=record(persp,object);
     if(c){float a=fget((void*)(object+0xb0)),target=wanted();
         if(isfinite(a)&&(fabsf(a-16.f/9.f)<.01f || (c->valid&&a==c->assigned[0]))){

@@ -1,11 +1,11 @@
 # ACNH Mobile
 
-**0.3.81 · build 90 — official Metal 4 edition, iOS 26+.**
+**0.3.84 · build 93 — official Metal 4 edition, iOS 26+.**
 
 Optional iCloud Drive save sharing is available in the iPhone and Mac launchers; choose the same folder on both devices. Replaced saves are backed up locally.
 
 Experimental same-Wi-Fi local networking is included as an ACNH-only patch. LiveContainer + SideStore users must update to the LAN-enabled host attached to this release and allow local network access. [Release notes](docs/RELEASE-v0.3.81.zh-CN.md).
-A native compatibility runtime for Animal Crossing: New Horizons 3.0.3. The runtime and shader translation sources are based on [NXNative](https://github.com/seedds/nxnative) commit `e72a06510e6dfff4a77c49fd205a82e21cad0786`.
+A native compatibility runtime for Animal Crossing: New Horizons 3.0.3. The runtime and shader translation sources are based on [NXNative](https://github.com/seedds/nxnative) commit `f11018a1f3125ec3046c30faae6147956a1a7c60`.
 
 This edition uses the official Metal 4 replay path and matching shader chain. It retains ACNH's icon touch controls, tool wheel, physical controllers, R/field-triggered Chinese text input, direct external `.data` access, transactional saves, amiibo file import, Photos export and bounded haptics. Custom touch layouts can be edited from startup settings; there is no added in-game typing toolbar.
 
@@ -19,7 +19,9 @@ Adaptive expanded view preserves horizontal FOV and reveals more vertical scener
 
 Use an Apple Silicon Mac and your own rewritten 3.0.3 modules, complete matching official iOS shader cache, RomFS and font to generate a private IPA. Sign the entire resulting package, including Guest.framework when using shell assembly. Do not upload private, game-containing IPA files.
 
-Build 90 adds optional external TV/AirPlay output, Atmosphère cheat-file support and physical-input recording/replay, plus official residency, memory-protection, controller mapping, audio and cloud-fetch fixes. Device testing of TV/AirPlay remains pending. See [update details](docs/RELEASE-v0.3.81.en.md).
+Build 92 synchronizes the generic runtime and shader tools with the pinned NXNative baseline: MetalFX upscaling, thermal pacing, expanded controller rumble, offline Metal pipeline archives, GPU diagnostics and newer graphics/movie handling. ACNH controls, adaptive layout, LAN, photo export and cloud saves remain project adapters. Device-only behavior still requires device testing.
+
+IPA and game data remain separate: the IPA contains the runtime and converted shaders; the existing compatible external `.data` package is reused. NSZ/XCZ conversion is supported by the local one-click tool. Optional offline pipeline targets can be selected with `--gpu g18p` (or `pso_gpus` in local configuration); omitted targets follow the official profile defaults.
 
 ## Existing build interface
 

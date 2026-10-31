@@ -9,7 +9,7 @@ import unittest
 from unittest import mock
 
 REPO = Path(__file__).resolve().parents[3]
-spec = importlib.util.spec_from_file_location('build_ipa_from_nsp', REPO / 'tools/upstream/nsp_pipeline.py')
+spec = importlib.util.spec_from_file_location('build_ipa_from_nsp', REPO / 'scripts/build_ipa_from_nsp.py')
 nsp = importlib.util.module_from_spec(spec); spec.loader.exec_module(nsp)
 
 
@@ -19,7 +19,7 @@ class NroPack(unittest.TestCase):
         self.repo = self.tmp / 'repo'; self.exe = self.tmp / 'game/ExeFS'; self.rom = self.exe.parent / 'RomFS'
         self.exe.mkdir(parents=True); self.rom.mkdir(); (self.exe / 'main').write_bytes(b'NSO0' + bytes(0x50))
         (self.rom / 'game.nrr').write_bytes(b'registered')
-        for f in ('dm/tools/nro_collect.py', 'dm/tools/nso_syms.py', 'dm/tools/patch_nso.py', 'dm/tools/nso_code.py', 'dm/tools/nso_asm.py', 'dm/tools/sdk_patches.py', 'dm/gfx/tools/smash_arc.py'):
+        for f in ('dm/tools/nro_collect.py', 'dm/tools/nso_syms.py', 'dm/tools/patch_nso.py', 'dm/tools/nso_code.py', 'dm/tools/nso_asm.py', 'dm/tools/nso_match.py', 'dm/tools/sdk_patches.py', 'dm/gfx/tools/smash_arc.py'):
             p = self.repo / f; p.parent.mkdir(parents=True, exist_ok=True); p.write_text('v1')
         self.out = self.tmp / 'patched_test'; self.logs = self.tmp / 'logs'; self.logs.mkdir()
         self.g = types.SimpleNamespace(words=lambda k: ['main'])
@@ -61,6 +61,22 @@ class NroPack(unittest.TestCase):
         self.assertFalse((self.out / 'nro.tsv').exists())
         self.assertFalse((self.tmp / 'nro_test').exists())
         self.assertEqual(self.rewrites, 2)
+
+    def test_unknown_build_reuse_counts_selected_rules_and_matcher(self):
+        selected = self.repo / 'dm/games/0100000000000001/patches.py'
+        foreign = self.repo / 'dm/games/0100000000000002/patches.py'
+        for p in (selected, foreign): p.parent.mkdir(parents=True); p.write_text('MATCH_CUTS = {}')
+        env = {'DM_GAME': selected.parent.name, 'DM_GAMES_DIR': '/derived/profile', 'DM_GAMES_FIRST': '1'}
+        def build(): nsp.rewrite(sys.executable, self.repo, self.exe, self.out, env, self.logs, self.g)
+        build(); build(); self.assertEqual(self.rewrites, 1)
+        foreign.write_text('MATCH_CUTS = {} # unrelated change')
+        build(); self.assertEqual(self.rewrites, 1)
+        selected.write_text('MATCH_CUTS = {} # selected change')
+        build(); self.assertEqual(self.rewrites, 2)
+        (self.repo / 'dm/tools/nso_match.py').write_text('matcher changed')
+        build(); self.assertEqual(self.rewrites, 3)
+        env['DM_GAME'] = foreign.parent.name
+        build(); self.assertEqual(self.rewrites, 4)
 
 
 if __name__ == '__main__': unittest.main()

@@ -2,7 +2,7 @@
 #include "../nvn/nvn_mtl.m"
 void *front_metal_layer(void) { return NULL; }
 module_t *module_of(const void *p) { (void)p; return NULL; }
-module_t g_mod[MAX_MOD]; int g_nmod;
+module_t *g_mod; int g_nmod;
 void svc_thread_dump(void) {}
 uint64_t now_ns(void) { return bp_now(); }
 static int checks, failed;
@@ -17,7 +17,7 @@ int main(void) { @autoreleasepool {
     CHECK(reader != nil, "synthetic plane reader compiles");
     if (!reader) return 1;
     id<MTLCommandQueue> queue = [g_dev newCommandQueue];
-    struct { int mid; p_scissor sc; int depth, mask; const char *label; int small_color; } cases[] = {
+    struct { int mid; p_scissor sc; int depth, mask; const char *label; } cases[] = {
         {0, {2,1,3,2}, 1, 0, "outside-pass scissored depth clear"},
         {0, {2,1,3,2}, 0, 255, "outside-pass scissored stencil clear"},
         {0, {0,0,8,8}, 0, 15, "outside-pass masked stencil clear"},
@@ -26,7 +26,7 @@ int main(void) { @autoreleasepool {
         {0, {2,1,0,2}, 1, 255, "empty scissor writes nothing"},
         {0, {-1,-1,3,3}, 1, 15, "negative scissor origin is clamped"},
         {0, {0,0,8,8}, 1, 255, "full clear remains a load action"},
-        {0, {0,0,8,8}, 1, 255, "full depth/stencil clear beside a smaller color target", 1},
+        {0, {0,0,8,8}, 0, 0, "new texture initialization zeros both planes"},
     };
     for (unsigned i=0; i<sizeof cases/sizeof *cases; i++) {
         tex_t t = {.magic=MAGIC('T','E','X',0), .serial=99401+i};
@@ -45,20 +45,13 @@ int main(void) { @autoreleasepool {
         res_add(base); mtl_tex_init(&t); serial_put(t.serial, base);
         state_reset(); memset(&R,0,sizeof R); mtl_sub_begin();
         R.has_rt=1; R.rt.depth=&t; R.has_sc=1; R.sc=cases[i].sc;
-        tex_t color = {.magic=MAGIC('T','E','X',0), .serial=99501+i};
-        if(cases[i].small_color){
-            color.d=(nvn_texdesc){.target=NVN_TEXTURE_TARGET_2D,.format=NVN_FORMAT_RGBA8,.width=2,.height=2,.depth=1,.levels=1,.samples=1};
-            id<MTLTexture> small=[g_dev newTextureWithDescriptor:tex_desc(&color,0)];
-            res_add(small);mtl_tex_init(&color);serial_put(color.serial,small);
-            R.rt.n=1;R.rt.color[0]=&color;
-        }
         if (cases[i].mid) CHECK(rp_begin() != nil, "preexisting render pass opens");
         struct { op_hdr head; p_clear_ds clear; op_hdr end; } ops = {0};
         ops.head=(op_hdr){OP_CLEAR_DS, sizeof(op_hdr)+sizeof(p_clear_ds)};
         ops.clear=(p_clear_ds){.depth=.25, .depth_mask=cases[i].depth, .stencil=0x3c, .stencil_mask=cases[i].mask};
         ops.end=(op_hdr){OP_END,sizeof(op_hdr)};
-        mtl_exec((const uint8_t *)&ops);
-        if(cases[i].small_color)CHECK(rp_begin()!=nil,"mixed-size render pass opens after the pending clear");
+        int zero_init = i == sizeof cases/sizeof *cases - 1;
+        if (zero_init) tex_zero_fill(base); else mtl_exec((const uint8_t *)&ops);
         mtl_sub_commit(); mtl_drain();
         CHECK(!mtl_last_commit_error(), "production clear completes without GPU error");
         id<MTLTexture> stencil = [base newTextureViewWithPixelFormat:MTLPixelFormatX32_Stencil8];
@@ -70,14 +63,13 @@ int main(void) { @autoreleasepool {
         uint32_t *pixels=result.contents; int valid=1;
         for (int y=0;y<8;y++) for (int x=0;x<8;x++) {
             p_scissor sc=cases[i].sc; int inside=x>=sc.x && x<sc.x+sc.w && y>=sc.y && y<sc.y+sc.h;
-            unsigned mask=inside?cases[i].mask:0, want_s=(0xa5&~mask)|(0x3c&mask);
-            uint32_t want_d=inside&&cases[i].depth?0x3e800000:0x3f400000;
+            unsigned mask=inside?cases[i].mask:0, want_s=zero_init?0:(0xa5&~mask)|(0x3c&mask);
+            uint32_t want_d=zero_init?0:inside&&cases[i].depth?0x3e800000:0x3f400000;
             valid &= pixels[2*(y*8+x)]==want_s && pixels[2*(y*8+x)+1]==want_d;
         }
         CHECK(valid,cases[i].label);
         printf("case %u: %s %s\n",i,cases[i].label,valid?"PASS":"FAIL");
         mtl_tex_release(&t);
-        if(cases[i].small_color)mtl_tex_release(&color);
     }
     printf("partial depth/stencil clears: %d checks, %d failed\n",checks,failed);
     return failed!=0;

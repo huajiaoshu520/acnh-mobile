@@ -4,7 +4,7 @@
 #include "../nvn/nvn_mtl.m"
 void *front_metal_layer(void) { return NULL; }
 module_t *module_of(const void *p) { (void)p; return NULL; }
-module_t g_mod[MAX_MOD]; int g_nmod;
+module_t *g_mod; int g_nmod;
 void svc_thread_dump(void) {}
 uint64_t now_ns(void) { return bp_now(); }
 static int checks, failed;
@@ -59,5 +59,3 @@ int main(void) { @autoreleasepool {
     read2d(pipeline, fit, 1, v); CHECK(same(v, 2, 2, swapped), "level 1 of the fitted view is level 2, layer 2, swizzled");
     printf("tex_fit views from the root: %d checks, %d failed\n", checks, failed); return failed != 0;
 } }
-
-int acnh_wide_present_full(void) { return 0; }

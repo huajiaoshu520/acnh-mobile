@@ -20,11 +20,7 @@ private func optionLabel(_ s: Setting, _ option: [String]) -> String {
     LauncherText.option(env: s.env, value: option[0], fallback: option[1])
 }
 
-private extension LauncherModel {
-    func binding(_ s: Setting) -> Binding<String> { Binding(get: { self.values[s.env] ?? s.def }, set: { self.values[s.env] = $0 }) }
-}
-
-private struct SettingRow: View {
+private struct ACNHSettingRow: View {
     let s: Setting
     @ObservedObject var m: LauncherModel
     let edit: (String) -> Void
@@ -33,7 +29,7 @@ private struct SettingRow: View {
     private var note: String {
         if s.available == false { return localized("This game controls its own frame timing; this option is not applicable.", "动森自行控制帧率，当前不适用此选项。") }
         let translated = LauncherText.note(env: s.env, fallback: s.note)
-        return locked ? (translated.isEmpty ? "" : translated + " · ") + localized("Set by an env file", "由配置文件设置") : translated
+        return locked ? (translated.isEmpty ? "" : translated + " · ") + (m.fromLaunch.contains(s.env) ? localized("Set at launch", "由启动参数设置") : localized("Set by an env file", "由配置文件设置")) : translated
     }
     private var rangeValue: Binding<Double> {
         Binding(get: { Double(m.values[s.env] ?? s.def) ?? s.max ?? 1 },
@@ -103,6 +99,7 @@ private struct LauncherView: View {
     let edit: (String) -> Void
     let chooseCloudFolder: (@escaping (Int) -> Void) -> Void
     let play: () -> Void
+    @State private var personalization = false
     @State private var memory = os_proc_available_memory()
 
 
@@ -125,9 +122,13 @@ private struct LauncherView: View {
                 NavigationStack {
                     List {
                         ForEach(m.sections, id: \.self) { section in
-                            Section(LauncherText.section(section)) {
-                                ForEach(m.settings.filter { $0.sectionTitle == section && ($0.env != "ACNH_CUSTOM_BASE" || m.values["ACNH_CONTROLLER_LAYOUT"] == "custom") }) { setting in
-                                    SettingRow(s: setting, m: m, edit: edit)
+                            Section(section == "Controls" ? "" : LauncherText.section(section)) {
+                                if section == "Controls" {
+                                    DisclosureGroup(isExpanded: $personalization) {
+                                        ForEach(m.rows(in: section)) { setting in ACNHSettingRow(s: setting, m: m, edit: edit) }
+                                    } label: { Text(localized("Personalization", "个性化")).foregroundStyle(.primary) }
+                                } else {
+                                    ForEach(m.rows(in: section)) { setting in ACNHSettingRow(s: setting, m: m, edit: edit) }
                                 }
                             }
                         }
@@ -244,9 +245,9 @@ private final class LandscapeLauncherController: UIHostingController<LauncherVie
 // Shows the launcher over the root view controller and calls done once the settings are in the environment; false (done is not called) when there is no launcher
 @_cdecl("dm_show_launcher")
 public func dmShowLauncher(_ viewController: UnsafeMutableRawPointer, _ done: @convention(c) () -> Void) -> Bool {
-    if ProcessInfo.processInfo.environment["DM_LAUNCHER"] == "0" { fputs("launcher: off (DM_LAUNCHER=0)\n", stderr); return false }
     guard let url = Bundle.main.resourceURL?.appendingPathComponent("dm/launcher.json"), let data = try? Data(contentsOf: url) else { return false }
     guard let file = try? JSONDecoder().decode(SettingsFile.self, from: data), !file.settings.isEmpty else { fputs("[RED] launcher: dm/launcher.json cannot be read; starting the game\n", stderr); return false }
+    if ProcessInfo.processInfo.environment["DM_LAUNCHER"] == "0" { fputs("launcher: off (DM_LAUNCHER=0)\n", stderr); LauncherModel(file.settings).applySaved(); return false }
     let parent = Unmanaged<UIViewController>.fromOpaque(viewController).takeUnretainedValue()
     let model = LauncherModel(file.settings)
     var host: UIViewController?

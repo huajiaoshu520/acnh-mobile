@@ -23,7 +23,7 @@ def audit(root):
     errors.append(str(rel)+': unexpected project icon content')
    manifest.append({'path':str(rel),'bytes':len(data),'sha256':hashlib.sha256(data).hexdigest()})
    continue
-  if p.suffix.lower()in FORBIDDEN_EXT:errors.append(str(rel)+': runtime/binary/resource format')
+  if p.suffix.lower()in FORBIDDEN_EXT and rel != Path('dm/gfx/tools/dmsh_pull.metal'):errors.append(str(rel)+': runtime/binary/resource format')
   data=p.read_bytes()
   if data.startswith(MAGICS)or b'\0'in data:errors.append(str(rel)+': binary/module content');continue
   try:s=data.decode('utf-8')

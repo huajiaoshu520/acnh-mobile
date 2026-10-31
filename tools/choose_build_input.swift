@@ -15,10 +15,10 @@ let subjects: [String: [String]] = [
     "en": ["Game folder · version 3.0.3 only", "Select the prod.keys file", "Select the output folder"]
 ]
 let descriptions: [String: [String]] = [
-    "zh-Hans": ["请选择同时包含动森本体和 3.0.3 更新 NSP 的文件夹。当前仅支持游戏 3.0.3。", "请选择名为 prod.keys 的密钥文件，不是文件夹，也不是 title.keys。", "请选择成品保存文件夹。生成的 IPA、数据包或 Mac 应用将放在这里，也可以新建文件夹。"],
-    "zh-Hant": ["請選擇同時包含動森本體與 3.0.3 更新 NSP 的資料夾。目前僅支援遊戲 3.0.3。", "請選擇名為 prod.keys 的金鑰檔案，不是資料夾，也不是 title.keys。", "請選擇成品儲存資料夾。產生的 IPA、資料包或 Mac 應用程式將放在這裡，也可以新增資料夾。"],
-    "ja": ["ゲーム本体と 3.0.3 更新 NSP が入ったフォルダを選択してください。対応するゲームバージョンは 3.0.3 のみです。", "prod.keys という名前のキーファイルを選択してください。フォルダや title.keys は選択しないでください。", "IPA、データパック、または Mac アプリの保存先フォルダを選択してください。新しいフォルダも作成できます。"],
-    "en": ["Select the folder containing the Animal Crossing base game and its 3.0.3 update NSP. Only game version 3.0.3 is supported.", "Select the key file named prod.keys, not a folder or title.keys.", "Select a folder for the generated IPA, data pack or Mac app. You can also create a new folder."]
+    "zh-Hans": ["请选择同时包含动森本体和 3.0.3 更新 NSP／XCI／NSZ／XCZ 的文件夹。当前仅支持游戏 3.0.3。", "请选择名为 prod.keys 的密钥文件，不是文件夹，也不是 title.keys。", "请选择成品保存文件夹。生成的 IPA、数据包或 Mac 应用将放在这里，也可以新建文件夹。"],
+    "zh-Hant": ["請選擇同時包含動森本體與 3.0.3 更新 NSP／XCI／NSZ／XCZ 的資料夾。目前僅支援遊戲 3.0.3。", "請選擇名為 prod.keys 的金鑰檔案，不是資料夾，也不是 title.keys。", "請選擇成品儲存資料夾。產生的 IPA、資料包或 Mac 應用程式將放在這裡，也可以新增資料夾。"],
+    "ja": ["ゲーム本体と 3.0.3 更新 NSP／XCI／NSZ／XCZ が入ったフォルダを選択してください。対応するゲームバージョンは 3.0.3 のみです。", "prod.keys という名前のキーファイルを選択してください。フォルダや title.keys は選択しないでください。", "IPA、データパック、または Mac アプリの保存先フォルダを選択してください。新しいフォルダも作成できます。"],
+    "en": ["Select the folder containing the Animal Crossing base game and its 3.0.3 update NSP/XCI/NSZ/XCZ. Only game version 3.0.3 is supported.", "Select the key file named prod.keys, not a folder or title.keys.", "Select a folder for the generated IPA, data pack or Mac app. You can also create a new folder."]
 ]
 let buttons: [String: [String]] = [
     "zh-Hans": ["使用此游戏目录", "使用此密钥", "保存到此文件夹"],

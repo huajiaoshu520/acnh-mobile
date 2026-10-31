@@ -6,7 +6,7 @@
 #include "../nvn/nvn_mtl.m"
 void *front_metal_layer(void) { return NULL; }
 module_t *module_of(const void *p) { (void)p; return NULL; }
-module_t g_mod[MAX_MOD]; int g_nmod;
+module_t *g_mod; int g_nmod;
 void svc_thread_dump(void) {}
 uint64_t now_ns(void) { return bp_now(); }
 static int checks, failed;
@@ -72,5 +72,3 @@ int main(void) { @autoreleasepool {
     for (int i = 0; i < 3; i++) run_case(texture(layer_counts[i] ? MTLTextureType2DArray : MTLTextureType2D, layer_counts[i] ?: 1), MTLTextureType3D, volume, pipeline);
     printf("cube and 3D placeholders: %d checks, %d failed\n", checks, failed); return failed != 0;
 } }
-
-int acnh_wide_present_full(void) { return 0; }

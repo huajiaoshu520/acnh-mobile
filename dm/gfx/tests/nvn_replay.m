@@ -19,7 +19,7 @@
 uint64_t g_t0_ns;
 void *front_metal_layer(void) { return NULL; }
 module_t *module_of(const void *p) { (void)p; return NULL; }
-module_t g_mod[MAX_MOD]; int g_nmod;
+module_t *g_mod; int g_nmod;
 void svc_thread_dump(void) {}
 uint64_t now_ns(void) { return bp_now(); }
 void crash_install(void);   // host crash.c: the fault handler that also takes the dirty tracker's write faults on pool pages (nvn_dirty.c)
@@ -218,6 +218,10 @@ int main(int argc, char **argv) { @autoreleasepool {
         return worst;
     }
     uint64_t tl0 = now_ns();
+    // The capture's textures and programs keep the live run's serials, and the replay layer's own objects (the per-stage combined programs of bind_stages) take theirs from
+    // the same counter and the same serial table: counted from 1 here, a combined program took a captured texture's serial, and that texture resolved to the program
+    // (Pokemon Scarlet: -[NvProg width] in rt_dims). Serials of a live run stay far below 2^61 (external textures take 2^62 and up)
+    nvn_serial_floor(1ull << 61);
     cap_reader rd; int lr = cap_load(&rd, path);
     if (lr <= 0) RFAIL("%s: %s", path, lr < 0 ? "not a capture of format 1" : "cannot read");
     for (;;) { cap_chunk c; uint8_t *d; int r = cap_next(&rd, &c, &d); if (r < 0) RFAIL("%s: corrupt chunk at byte %zu", path, rd.pos); if (!r) break;
@@ -234,6 +238,8 @@ int main(int argc, char **argv) { @autoreleasepool {
     uint64_t mtl_frame = head_get(head, hn, "mtl_frame", v, sizeof v) ? strtoull(v, NULL, 10) : 0;
     if (strcmp(title, DM_GAME_ID)) RFAIL("the capture is of %s, this replayer is built for %s (make GAME=%s nvn_replay)", title, DM_GAME_ID, title);
     if (ln != strlen(cap_layout()) || memcmp(lay, cap_layout(), ln)) RFAIL("the capture's record layout differs from this build's (nvn_obj.h changed since the capture): capture again");
+    if (!head_get(head, hn, "iface", v, sizeof v) || atoi(v) != CAP_IFACE)   // the shader interface hashes check_programs compares (nvn_capture.inc cap_iface)
+        RFAIL("the capture's shader interface hashes are of another kind (%s, this build %d: before 2 they hashed nvn_refl.h's struct bytes): capture again", head_get(head, hn, "iface", v, sizeof v) ? v : "none", CAP_IFACE);
     printf("capture %s: %s frame %s, build %s, host %s, chain %s (this build: chain %s)\n", path, title, frame, build, commit, chain, DMSH_CHAIN);
     apply_env(head, hn);
     mtl_init();
@@ -262,7 +268,7 @@ int main(int argc, char **argv) { @autoreleasepool {
     for (size_t i = 0; i < rp_nch; i++) {   // pools first: descriptor pools and textures point at them
         cap_chunk *c = &rp_ch[i].c; const uint8_t *d = rp_ch[i].d; if (c->tag != CAP_POBJ) continue;
         for (size_t o = 0; o + sizeof(cap_pobj) <= c->raw; o += sizeof(cap_pobj)) { cap_pobj p; memcpy(&p, d + o, sizeof p);
-            uint64_t m = p.mem; dec_addr(NULL, &m, 0, 0); rp_po[p.index] = (pool_t){MAGIC('P', 'O', 'O', 'L'), p.flags, (uint8_t *)(uintptr_t)m, p.size}; }
+            uint64_t m = p.mem; dec_addr(NULL, &m, 0, 0); rp_po[p.index] = (pool_t){MAGIC('P', 'O', 'O', 'L'), p.flags, (uint8_t *)(uintptr_t)m, p.size, NULL, p.vmode}; }
     }
     for (size_t i = 0; i < rp_nch; i++) {
         cap_chunk *c = &rp_ch[i].c; const uint8_t *d = rp_ch[i].d;
@@ -317,7 +323,7 @@ int main(int argc, char **argv) { @autoreleasepool {
                 if (c->tag == CAP_PADD && s > 1) add_pools(d, c->raw);
                 else if (c->tag == CAP_PDIF) for (size_t o = 0; o + 24 <= c->raw;) { uint32_t r; uint64_t off, len; memcpy(&r, d + o, 4); memcpy(&off, d + o + 8, 8); memcpy(&len, d + o + 16, 8);
                     if (r >= rp_nrg || off + len > rp_rg[r].size || o + 24 + len > c->raw) RFAIL("a pool change outside its region"); memcpy(rp_rg[r].mem + off, d + o + 24, (size_t)len); o += 24 + (size_t)len; }
-                else if (c->tag == CAP_TREG) for (size_t o = 0; o + sizeof(cap_treg) <= c->raw; o += sizeof(cap_treg)) { cap_treg *e = (cap_treg *)(d + o); mtl_reg_tex(e->tid, e->ok ? &e->t : NULL, e->has_v ? &e->v : NULL); }
+                else if (c->tag == CAP_TREG) for (size_t o = 0; o + sizeof(cap_treg) <= c->raw; o += sizeof(cap_treg)) { cap_treg *e = (cap_treg *)(d + o); mtl_reg_tex(e->tid, e->ok ? &e->t : NULL, e->has_v ? &e->v : NULL); if (e->gone) mtl_reg_tex_gone(e->tid); }
                 else if (c->tag == CAP_SREG) for (size_t o = 0; o + sizeof(cap_sreg) <= c->raw; o += sizeof(cap_sreg)) { cap_sreg e; memcpy(&e, d + o, sizeof e); mtl_reg_samp(e.sid, &e.p); }
                 else if (c->tag == CAP_TPIX) fill_tex(d, c->raw);
             }
@@ -335,7 +341,7 @@ int main(int argc, char **argv) { @autoreleasepool {
             uint64_t t1 = now_ns(); setup_ns += t1 - t0;
             if (s == 1) mtl_stats(&pass0, &draw0);
             mtl_set_frame(frame_no);
-            mtl_set_origin_lower_left(qll);
+            mtl_set_queue_origin_lower_left(qll);
             mtl_sub_begin(); nvn_ft_poll(); mtl_sub_index(hs, (int)nh);
             for (uint32_t i = 0; i < nh; i++) { mtl_exec_rest(hs + i + 1, (int)(nh - i - 1)); mtl_exec((const uint8_t *)(uintptr_t)hs[i]); }
             mtl_exec_rest(NULL, 0); mtl_sub_commit();
@@ -388,7 +394,7 @@ int main(int argc, char **argv) { @autoreleasepool {
         }   // DM_NVN_TEXDUMP of the live frame: the replay has no next frame to trigger it
         double gpu = mtl_gpu_ms(frame_no);
         uint64_t pass1, draw1; mtl_stats(&pass1, &draw1);
-        if (opt_writes) { uint64_t a[6]={0}; mtl_vbuf_stats(&a[0], &a[1], &a[2], &a[3]); printf("vbuf: resolve %llu reuse %llu set %llu skip %llu unaligned copies %llu (%llu bytes)\n", a[0], a[1], a[2], a[3], a[4], a[5]); }
+        if (opt_writes) { uint64_t a[6]; mtl_vbuf_stats(&a[0], &a[1], &a[2], &a[3], &a[4], &a[5]); printf("vbuf: resolve %llu reuse %llu set %llu skip %llu unaligned copies %llu (%llu bytes)\n", a[0], a[1], a[2], a[3], a[4], a[5]); }
         if (have_px) printf("replay %d: %llu pixels differ from the live frame (largest byte difference %u, x %u-%u y %u-%u)\n", index + rep, (unsigned long long)npx, big, x0, x1, y0, y1);
         printf("replay %d: digest %s %s live %s (%ux%u format %u); submit CPU %.2f ms (+ %.2f ms applying the captured state), GPU %.2f ms; %llu passes, %llu draws, %llu segments\n", index + rep, out, same ? "==" : "!=", live, w, h, pf, exec_ns / 1e6, setup_ns / 1e6, gpu,
                (unsigned long long)(pass1 - pass0), (unsigned long long)(draw1 - draw0), (unsigned long long)g_seg + 1);
@@ -398,5 +404,3 @@ int main(int argc, char **argv) { @autoreleasepool {
     else printf("[RED] MISMATCH: the replayed frame differs from the live frame%s\n", lpix ? "" : " (a capture without the live pixels: compared by digest only)");
     return ok_all ? 0 : 1;
 } }
-
-int acnh_wide_present_full(void) { return 0; }

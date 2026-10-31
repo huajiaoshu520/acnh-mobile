@@ -26,7 +26,6 @@ HLE_FORCE("_ZN2nn2oe24SetExpectedVolumeBalanceEff", "volume balance; the host ig
 HLE_FORCE("_ZN2nn2oe25GetProgramTotalActiveTimeEv", "total active time → time since the host started", int64_t, h_oe_ActiveTime, void) { return (int64_t)(now_ns() - g_t0_ns); }
 HLE_FORCE("_ZN2nn2oe31EnterExitRequestHandlingSectionEv", "exit request critical section; the host exits through SIGTERM / the lifecycle", void, h_oe_EnterExit, void) {}
 HLE_FORCE("_ZN2nn2oe31LeaveExitRequestHandlingSectionEv", "exit request critical section; the host ignores it", void, h_oe_LeaveExit, void) {}
-HLE_FORCE("_ZN2nn2oe38SetUserInactivityDetectionTimeExtendedEb", "extended auto-sleep delay; the host ignores it", void, h_oe_Inactivity, unsigned on) { (void)on; }
 
 // ---------- time ----------
 // CalendarTime = { int16 year; int8 month, day, hour, minute, second }, returned by value (within 8 bytes, in x0)
@@ -152,33 +151,104 @@ HLE_FORCE("_ZN2nn2pl13GetSharedFontEPiPNS0_14SharedFontDataEiNS_8settings12Langu
 }
 // Whether running on a Switch 2 (codename Ounce) (returns bool): the host reports false, as a Switch 1. Mario 1.2.1 uses it to decide whether to count add-on content (the upgrade pack) and suggest the Switch 2 Edition
 HLE_FORCE("_ZN2nn2pl16IsRunningOnOunceEv", "running on Switch 2: no", unsigned, h_pl_IsOunce, void) { return 0; }
-// The Legend of Zelda: Breath of the Wild (SDK 20): asks for the shared fonts to be loaded before querying their state; the host's stand-in fonts are there on demand. VR mode (the Labo VR goggles): the host never enters VR; the query is always false, entering / leaving is a no-op
+// The Legend of Zelda: Breath of the Wild (SDK 20): asks for the shared fonts to be loaded before querying their state; the host's stand-in fonts are there on demand. VR mode (the Labo VR goggles): the host never enters VR; the query is always false,
+// and BeginVrMode returns what the SDK's own returns when pctl::CheckStereoVisionPermission refuses (hle_misc.c), 0xd08e (BotW's sdk+0x412970; Super Smash Bros. Ultimate tests it with cbz); EndVrMode is a no-op
 HLE_FORCE("_ZN2nn2pl21RequestSharedFontLoadENS0_14SharedFontTypeE", "request shared font load; the stand-in font is always available, no-op", void, h_pl_ReqLoad, int type) { (void)type; }
 HLE_FORCE("_ZN2nn2pl8IsVrModeEv", "VR mode: no", unsigned, h_pl_IsVr, void) { return 0; }
-HLE_FORCE("_ZN2nn2pl11BeginVrModeEv", "enter VR mode (through am); the host does not", void, h_pl_BeginVr, void) { LOG("pl::BeginVrMode (the host does not enter VR)"); }
+HLE_FORCE("_ZN2nn2pl11BeginVrModeEv", "enter VR mode (through am); the host does not: stereo vision not permitted", Result, h_pl_BeginVr, void) { LOG("pl::BeginVrMode (the host does not enter VR)"); return 0xd08e; }
 HLE_FORCE("_ZN2nn2pl9EndVrModeEv", "leave VR mode (through am)", void, h_pl_EndVr, void) {}
 
 // ---------- ec: shop applet (the upgrade-to-Switch-2-Edition page) ----------
 // The shop is out of scope: no-op. The game does not look at the return value (both overloads are handled as returning nothing)
-HLE_FORCE("_ZN2nn2ec40ShowShopApplicationInformationForUpgradeENS0_14UpgradeEditionE", "shop upgrade page, out of scope; no-op", void, h_ec_ShowUpg, int ed) { LOG("ec::ShowShopApplicationInformationForUpgrade(%d) (cut)", ed); }
-HLE_FORCE("_ZN2nn2ec40ShowShopApplicationInformationForUpgradeENS0_14UpgradeEditionERKNS_7account10UserHandleE", "shop upgrade page (given user), out of scope; no-op", void, h_ec_ShowUpgU, int ed, const void *user) { (void)user; LOG("ec::ShowShopApplicationInformationForUpgrade(%d, user) (cut)", ed); }
+HLE_FORCE("_ZN2nn2ec40ShowShopApplicationInformationForUpgradeENS0_14UpgradeEditionE", "shop upgrade page, out of scope; no-op", void, h_ec_ShowUpg, int ed) { DM_APPLET("shop"); LOG("ec::ShowShopApplicationInformationForUpgrade(%d) (cut)", ed); }
+HLE_FORCE("_ZN2nn2ec40ShowShopApplicationInformationForUpgradeENS0_14UpgradeEditionERKNS_7account10UserHandleE", "shop upgrade page (given user), out of scope; no-op", void, h_ec_ShowUpgU, int ed, const void *user) { DM_APPLET("shop"); (void)user; LOG("ec::ShowShopApplicationInformationForUpgrade(%d, user) (cut)", ed); }
+
+// A profile with its own NFC reader supplies this family instead.
+#ifndef DM_CUSTOM_NFP
+// ---------- nfp: amiibo ----------
+// From Mario 1.2.1 the game initializes nfp at boot (v0 did not use it). The real SDK would connect to the sm: service, which the host lacks → abort, so the whole family is taken over.
+// The host has no NFC reader: it reports one NFC device on the currently connected controller (same as hle_hid.c) whose detection never finds a tag -- the same as real hardware with no amiibo at hand:
+// the game's "touch an amiibo" screen appears as usual and cancelling leaves it. Operations that need a tag (mount, application area read / write, amiibo settings applets) all return "tag not found".
+// The game attaches no activate / deactivate events; it polls GetDeviceState to see whether a tag is there.
+#define NFP_RES_TAG_NOT_FOUND (115u | 97u << 9)   // module 115 (nfp), description 97
+enum { NFP_STATE_INIT = 0, NFP_STATE_SEARCH = 1 };   // 0 initialized, 1 searching for a tag (2 = tag found, never on the host)
+typedef struct { uint32_t id; uint8_t reserved[4]; } NfpDeviceHandle;
+#define NFP_DEVICE_ID 0x4e465030u   // 'NFP0'
+static _Atomic int g_nfp_state;
+uint32_t hle_hid_connected_npad(void);
+static Result nfp_no_tag(const char *what) {
+    static _Atomic int logged; if (!atomic_exchange(&logged, 1)) LOG("nfp: %s and other operations that need an amiibo tag → no tag found (the host has no NFC)", what);
+    return NFP_RES_TAG_NOT_FOUND;
+}
+HLE_FORCE("_ZN2nn3nfp10InitializeEv", "amiibo library init; the host has one NFC device that never finds a tag", void, h_nfp_Init, void) { LOG("nfp::Initialize: the host has one NFC device and finds no amiibo tag"); }
+HLE_FORCE("_ZN2nn3nfp29AttachAvailabilityChangeEventEPNS_2os15SystemEventTypeE", "NFC availability change event; bound to a kernel event, never signalled", void, h_nfp_AttachAvail, void *ev) { hle_bind_system_event(ev, 0); }
+HLE_FORCE("_ZN2nn3nfp11ListDevicesEPNS0_12DeviceHandleEPii", "NFC device list: one device", Result, h_nfp_List, NfpDeviceHandle *out, int *n, int max) {
+    *n = 0; if (max >= 1) { memset(&out[0], 0, sizeof out[0]); out[0].id = NFP_DEVICE_ID; *n = 1; }
+    return RES_OK;
+}
+HLE_FORCE("_ZN2nn3nfp9GetNpadIdEPjRKNS0_12DeviceHandleE", "controller the NFC device is on: the one connected now", Result, h_nfp_NpadId, uint32_t *out, const NfpDeviceHandle *h) { (void)h; *out = hle_hid_connected_npad(); return RES_OK; }
+HLE_FORCE("_ZN2nn3nfp14StartDetectionERKNS0_12DeviceHandleE", "start tag detection (never finds one)", Result, h_nfp_Start, const NfpDeviceHandle *h) { (void)h; atomic_store(&g_nfp_state, NFP_STATE_SEARCH); return RES_OK; }
+HLE_FORCE("_ZN2nn3nfp13StopDetectionERKNS0_12DeviceHandleE", "stop tag detection", Result, h_nfp_Stop, const NfpDeviceHandle *h) { (void)h; atomic_store(&g_nfp_state, NFP_STATE_INIT); return RES_OK; }
+HLE_FORCE("_ZN2nn3nfp14GetDeviceStateERKNS0_12DeviceHandleE", "device state: initialized / searching for a tag", int, h_nfp_State, const NfpDeviceHandle *h) { (void)h; return atomic_load(&g_nfp_state); }
+HLE_FORCE("_ZN2nn3nfp10GetTagInfoEPNS0_7TagInfoERKNS0_12DeviceHandleE", "tag info: no tag", Result, h_nfp_TagInfo, void *out, const NfpDeviceHandle *h) { (void)out; (void)h; return nfp_no_tag("GetTagInfo"); }
+HLE_FORCE("_ZN2nn3nfp12GetModelInfoEPNS0_9ModelInfoERKNS0_12DeviceHandleE", "model info: no tag", Result, h_nfp_ModelInfo, void *out, const NfpDeviceHandle *h) { (void)out; (void)h; return nfp_no_tag("GetModelInfo"); }
+HLE_FORCE("_ZN2nn3nfp5MountERKNS0_12DeviceHandleENS0_9ModelTypeENS0_11MountTargetE", "mount tag: no tag", Result, h_nfp_Mount, const NfpDeviceHandle *h, int model, int target) { (void)h; (void)model; (void)target; return nfp_no_tag("Mount"); }
+// Another group The Legend of Zelda: Breath of the Wild (SDK 20) uses: tag activate / deactivate events (bound to a kernel event that never fires; without the take-over the SDK's code reads a null pointer at sdk+0x3f2a78), the two-argument Mount,
+//   Unmount, reading common / register info (all answered as no tag), the library state (1 = initialized) and Finalize
+HLE_FORCE("_ZN2nn3nfp19AttachActivateEventEPNS_2os15SystemEventTypeERKNS0_12DeviceHandleE", "tag placed event; bound to a kernel event, never signalled", Result, h_nfp_AttachAct, void *ev, const NfpDeviceHandle *h) { (void)h; hle_bind_system_event(ev, 0); return RES_OK; }
+HLE_FORCE("_ZN2nn3nfp21AttachDeactivateEventEPNS_2os15SystemEventTypeERKNS0_12DeviceHandleE", "tag removed event; bound to a kernel event, never signalled", Result, h_nfp_AttachDeact, void *ev, const NfpDeviceHandle *h) { (void)h; hle_bind_system_event(ev, 0); return RES_OK; }
+HLE_FORCE("_ZN2nn3nfp5MountERKNS0_12DeviceHandleENS0_9ModelTypeE", "mount tag (two arguments): no tag", Result, h_nfp_Mount2, const NfpDeviceHandle *h, int model) { (void)h; (void)model; return nfp_no_tag("Mount"); }
+HLE_FORCE("_ZN2nn3nfp7UnmountERKNS0_12DeviceHandleE", "unmount tag: no tag", Result, h_nfp_Unmount, const NfpDeviceHandle *h) { (void)h; return nfp_no_tag("Unmount"); }
+HLE_FORCE("_ZN2nn3nfp13GetCommonInfoEPNS0_10CommonInfoERKNS0_12DeviceHandleE", "common info: no tag", Result, h_nfp_CommonInfo, void *out, const NfpDeviceHandle *h) { (void)out; (void)h; return nfp_no_tag("GetCommonInfo"); }
+HLE_FORCE("_ZN2nn3nfp15GetRegisterInfoEPNS0_12RegisterInfoERKNS0_12DeviceHandleE", "register info: no tag", Result, h_nfp_RegInfo, void *out, const NfpDeviceHandle *h) { (void)out; (void)h; return nfp_no_tag("GetRegisterInfo"); }
+HLE_FORCE("_ZN2nn3nfp8GetStateEv", "amiibo library state: initialized (1)", int, h_nfp_LibState, void) { return 1; }
+HLE_FORCE("_ZN2nn3nfp8FinalizeEv", "amiibo library finalize; the host has no session", void, h_nfp_Fini, void) {}
+HLE_FORCE("_ZN2nn3nfp5FlushERKNS0_12DeviceHandleE", "flush tag: no tag", Result, h_nfp_Flush, const NfpDeviceHandle *h) { (void)h; return nfp_no_tag("Flush"); }
+HLE_FORCE("_ZN2nn3nfp19OpenApplicationAreaERKNS0_12DeviceHandleEj", "open application area: no tag", Result, h_nfp_OpenArea, const NfpDeviceHandle *h, uint32_t id) { (void)h; (void)id; return nfp_no_tag("OpenApplicationArea"); }
+HLE_FORCE("_ZN2nn3nfp18GetApplicationAreaEPvPmRKNS0_12DeviceHandleEm", "read application area: no tag", Result, h_nfp_GetArea, void *buf, uint64_t *n, const NfpDeviceHandle *h, uint64_t sz) { (void)buf; (void)h; (void)sz; if (n) *n = 0; return nfp_no_tag("GetApplicationArea"); }
+HLE_FORCE("_ZN2nn3nfp18SetApplicationAreaERKNS0_12DeviceHandleEPKvm", "write application area: no tag", Result, h_nfp_SetArea, const NfpDeviceHandle *h, const void *buf, uint64_t sz) { (void)h; (void)buf; (void)sz; return nfp_no_tag("SetApplicationArea"); }
+HLE_FORCE("_ZN2nn3nfp21CreateApplicationAreaERKNS0_12DeviceHandleERKNS0_25ApplicationAreaCreateInfoE", "create application area: no tag", Result, h_nfp_CreateArea, const NfpDeviceHandle *h, const void *info) { (void)h; (void)info; return nfp_no_tag("CreateApplicationArea"); }
+HLE_FORCE("_ZN2nn3nfp23RecreateApplicationAreaERKNS0_12DeviceHandleERKNS0_25ApplicationAreaCreateInfoE", "recreate application area: no tag", Result, h_nfp_RecreateArea, const NfpDeviceHandle *h, const void *info) { (void)h; (void)info; return nfp_no_tag("RecreateApplicationArea"); }
+HLE_FORCE("_ZN2nn3nfp13StartRestorerEPNS0_12DeviceHandleERKNS0_24AmiiboSettingsStartParamERKNS0_7TagInfoE", "amiibo restorer applet: no tag", Result, h_nfp_Restorer, NfpDeviceHandle *h, const void *p, const void *tag) { (void)h; (void)p; (void)tag; return nfp_no_tag("StartRestorer"); }
+HLE_FORCE("_ZN2nn3nfp19StartGameDataEraserEPNS0_12DeviceHandleERKNS0_24AmiiboSettingsStartParamERKNS0_7TagInfoE", "amiibo game data eraser applet: no tag", Result, h_nfp_Eraser, NfpDeviceHandle *h, const void *p, const void *tag) { (void)h; (void)p; (void)tag; return nfp_no_tag("StartGameDataEraser"); }
+HLE_FORCE("_ZN2nn3nfp29StartNicknameAndOwnerSettingsEPNS0_12DeviceHandleEPbPNS0_12RegisterInfoERKNS0_24AmiiboSettingsStartParamERKNS0_7TagInfoE", "amiibo nickname and owner settings applet: no tag", Result, h_nfp_Nick, NfpDeviceHandle *h, uint8_t *changed, void *reg, const void *p, const void *tag) { (void)h; (void)reg; (void)p; (void)tag; if (changed) *changed = 0; return nfp_no_tag("StartNicknameAndOwnerSettings"); }
+HLE_FORCE("_ZN2nn3nfp29StartNicknameAndOwnerSettingsEPNS0_12DeviceHandleEPbPNS0_12RegisterInfoERKNS0_24AmiiboSettingsStartParamERKNS0_7TagInfoERKS4_", "amiibo nickname and owner settings applet (with the old register info): no tag", Result, h_nfp_Nick2, NfpDeviceHandle *h, uint8_t *changed, void *reg, const void *p, const void *tag, const void *old) { (void)h; (void)reg; (void)p; (void)tag; (void)old; if (changed) *changed = 0; return nfp_no_tag("StartNicknameAndOwnerSettings"); }
+
+#endif // DM_CUSTOM_NFP
 
 // ---------- vi: vsync event ----------
 // The game passes a SystemEventType; after binding, a host thread fires it at 60 Hz (DM_VSYNC_HZ can change it). While the display link presents, the event follows its ticks, as a
 // Switch's follows its display: Super Mario Galaxy 2 runs the Wii's VI retrace (and with it each emulated frame) on this event, and on a clock of the host's own the frames drifted
-// against the screen's vsyncs, two in some display-link ticks and none in others (iPhone: about one tick in seven, a stutter the frame-rate counter showed as 50 to 60)
+// against the screen's vsyncs, two in some display-link ticks and none in others (iPhone: about one tick in seven, a stutter the frame-rate counter showed as 50 to 60).
+// One thread per binding lifetime: repeated requests must not double its rate.
+// A destroyed binding retires its worker even if another service reuses the same
+// guest storage and handle number before the next tick (MacNativeGames dab728a).
 void dm_host_helper_qos(qos_class_t q);   // hle_thread.c
+typedef struct vsync_event { void *ev; uint64_t binding; struct vsync_event *next; } vsync_event_t;
+static pthread_mutex_t g_vs_mu = PTHREAD_MUTEX_INITIALIZER;
+static vsync_event_t *g_vs_events;
+static int vsync_tick(vsync_event_t *v) {   // 0: the event is gone and this thread has left the table
+    if (hle_signal_system_event_binding(v->binding)) return 1;
+    pthread_mutex_lock(&g_vs_mu);
+    vsync_event_t **p = &g_vs_events; while (*p && *p != v) p = &(*p)->next;
+    if (*p) *p = v->next;
+    pthread_mutex_unlock(&g_vs_mu);
+    LOG("vi: vsync event %p destroyed by the game, its thread ends", v->ev);
+    return 0;
+}
 __attribute__((weak)) int mtl_link_wait_vsync(uint64_t *seen, uint64_t timeout_ns) { (void)seen; (void)timeout_ns; return 0; }   // nvn_mtl.m
-static void *vsync_thread(void *ev) {
+static void *vsync_thread(void *arg) {
+    vsync_event_t *v = arg;
     dm_host_helper_qos(QOS_CLASS_USER_INTERACTIVE);   // the game paces frames on this event
     const char *e = getenv("DM_VSYNC_HZ"); double hz = e ? atof(e) : 60.0; if (hz <= 0) hz = 60.0;
     uint64_t period = (uint64_t)(1e9 / hz), next = now_ns() + period, seen = 0;
     for (;;) {
-        if (!e && mtl_link_wait_vsync(&seen, 2 * period)) { hle_signal_system_event(ev); next = now_ns() + period; continue; }
+        if (!e && mtl_link_wait_vsync(&seen, 2 * period)) { if (!vsync_tick(v)) break; next = now_ns() + period; continue; }
         uint64_t t = now_ns(); if (next > t) { struct timespec ts = {(time_t)((next - t) / 1000000000ull), (long)((next - t) % 1000000000ull)}; nanosleep(&ts, NULL); }
-        hle_signal_system_event(ev); next += period; if (now_ns() > next + 4 * period) next = now_ns() + period;   // do not try to catch up when far behind
+        if (!vsync_tick(v)) break;
+        next += period; if (now_ns() > next + 4 * period) next = now_ns() + period;   // do not try to catch up when far behind
     }
-    return NULL;
+    free(v); return NULL;
 }
 // Image memory needed for an indirect layer (an applet's picture handed to the game to draw, such as the inline keyboard): on hardware it asks the vi service. Computed as linear RGBA8, 4 KB aligned (Super Mario 3D World + Bowser's Fury's inline keyboard asks for 1280x720)
 HLE_FORCE("_ZN2nn2vi33GetIndirectImageMemoryRequirementEPmS1_ii", "indirect layer image memory: RGBA8 linear, 4 KB aligned", Result, h_vi_IndirectReq, size_t *size, size_t *align, int w, int h) {
@@ -186,8 +256,16 @@ HLE_FORCE("_ZN2nn2vi33GetIndirectImageMemoryRequirementEPmS1_ii", "indirect laye
 }
 HLE_FORCE("_ZN2nn2vi20GetDisplayVsyncEventEPNS_2os15SystemEventTypeEPNS0_7DisplayE", "vsync event: a host thread signals it at 60 Hz", Result, h_vi_VsyncEvent, void *ev, void *disp) {
     (void)disp; hle_bind_system_event(ev, 1);
-    pthread_t th; if (pthread_create(&th, NULL, vsync_thread, ev)) die("cannot start the vsync thread"); pthread_detach(th);
-    LOG("vi::GetDisplayVsyncEvent: %p signalled by the host at 60 Hz", ev); return RES_OK;
+    uint64_t binding = hle_system_event_binding(ev);
+    pthread_mutex_lock(&g_vs_mu);
+    int running = 0; for (vsync_event_t *v = g_vs_events; v; v = v->next) running |= v->binding == binding;
+    if (!running) {
+        vsync_event_t *v = calloc(1, sizeof *v); if (!v) die("cannot allocate a vsync event");
+        v->ev = ev; v->binding = binding; v->next = g_vs_events; g_vs_events = v;
+        pthread_t th; if (pthread_create(&th, NULL, vsync_thread, v)) die("cannot start the vsync thread"); pthread_detach(th);
+    }
+    pthread_mutex_unlock(&g_vs_mu);
+    LOG("vi::GetDisplayVsyncEvent: %p signalled by the host at 60 Hz%s", ev, running ? " (its thread already runs)" : ""); return RES_OK;
 }
 
 // ---------- diag ----------
@@ -205,6 +283,16 @@ static void diag_abort(uint32_t res, void *lr) {
 HLE_FORCE("_ZN2nn4diag6detail9AbortImplEv", "game aborted", void, h_diag_Abort0, void) { diag_abort(0, __builtin_return_address(0)); }
 HLE_FORCE("_ZN2nn4diag6detail9AbortImplEPKNS_6ResultE", "game aborted (with Result)", void, h_diag_AbortR, const uint32_t *r) { diag_abort(r ? *r : 0, __builtin_return_address(0)); }
 HLE_FORCE("_ZN2nn4diag12GetBacktraceEPmi", "backtrace; the host provides none (0 frames)", int, h_diag_Bt, uint64_t *out, int n) { (void)out; (void)n; return 0; }
+// An assert, a C++ exception that nothing caught (std::terminate) or an SDK check reached VAbortImpl: print where it came from and the message's FORMAT, which
+// names the failure on its own ("libc++abi: terminating due to uncaught exception of type ...", Well Dweller's first boot). The arguments the format would fill
+// are not expanded: the host cannot read a __va_list the guest built (its register save area holds the guest's general-purpose registers, and the pointers in
+// it are the ones libc++abi passed by value, so the host's vsnprintf prints rubbish where %s is).
+HLE_FORCE("_ZN2nn4diag6detail10VAbortImplEPKcS3_S3_iPKNS_6ResultEPKNS_2os17UserExceptionInfoES3_RSt9__va_list", "SDK abort message", void, h_diag_VAbort,
+          const char *fn, const char *expr, const char *file, int line, const void *res, const void *info, const char *fmt, void *ap) {
+    (void)info; (void)ap;
+    LOG("[diag] abort at %s: %s (%s:%d) message format %s", fn ? fn : "?", expr ? expr : "?", file ? file : "?", line, fmt ? fmt : "?");
+    diag_abort(res ? *(const uint32_t *)res : 0, __builtin_return_address(0));   // VAbortImpl never returns to its caller
+}
 HLE_FORCE("_ZN2nn4diag13GetSymbolNameEPcmm", "symbol name; the host provides none (empty string)", uint64_t, h_diag_SymName, char *buf, size_t n, uint64_t addr) { (void)addr; if (buf && n) buf[0] = 0; return 0; }
 
 // ---------- settings: language enum <-> language code ----------
