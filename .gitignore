@@ -53,3 +53,6 @@ ExeFS/
 # Generated from this checkout's matching Mac shader build (NXNative 4c7adf4).
 dm/games/*/c1_full.tsv
 dm/games/*/cb_extent.tsv
+
+# Authored host shader source; compiled shader libraries remain ignored.
+!dm/gfx/msl/*.metal

@@ -326,6 +326,37 @@ class Regress(unittest.TestCase):
         self.assertTrue(regress.smoke_diff([good], [dict(good, shots={})], route)[0]['NEW-FAIL'])
         self.assertTrue(regress.run_failures({'exit': None, 'max_frame': -1, 'reached': False}, {'reach': None}))
 
+    def test_smoke_detects_archive_profile_mismatches(self):
+        # The harness makes its own archive, so a profile/runtime mismatch must also fail without a bundled archive.
+        depth = '[dm] [nvn-mtl] depth mode: near=0, vertex shaders use the main0_z entry\n'
+        rejected = ('[dm] [nvn-mtl] pipeline archive bundled with the app: made for chain b3ca4b7c621f; depth near=-w; '
+                    'pairs 255241 f6cf106d01da3da8, this run needs chain b3ca4b7c621f; depth near=0; pairs 255241 f6cf106d01da3da8: '
+                    'the device builds the bases it does not hold (the game\'s depth mode is not the one built for: the profile key depth_mode)\n')
+        cases = [(False, depth, 'profile depth_mode gl'), (True, depth, None),
+                 (True, '[dm] [nvn] depth mode near=-w (GL)\n', 'profile depth_mode zero'),
+                 (True, depth + rejected, 'bundled pipeline archive stamp'),
+                 (True, depth + rejected.replace('depth near=-w', 'depth near=0').replace('made for chain b3ca4b7c621f', 'made for chain old'), 'bundled pipeline archive stamp'),
+                 (True, depth + '[dm] [nvn-mtl] pipeline archive bundled with the app: made for (no prebuilt.tsv), this run needs chain current; depth near=0: the device builds the bases it does not hold\n', 'bundled pipeline archive stamp'),
+                 (False, '', None), (False, '[dm] [nvn] depth mode near=-w (GL)\n', None),
+                 (True, depth + '[dm] [nvn-mtl] pipeline archive bundled with the app: holds the bases of every shader pair (16 of 16 probed bases found, 26.0 ms)\n', None)]
+        route = dict(secs=10, quick=10, prebuild='off', keys='', reach=None, shots=[], hang=20)
+        for zero, text, failure in cases:
+            with self.subTest(zero=zero, text=text), tempfile.TemporaryDirectory() as td:
+                out = Path(td)
+                def watched(cmd, env, cwd, log, *args, text=text, **kw):
+                    log.write_text(text)
+                    return dict(exit=None, hang_at_s=None, hang_sample=None, first_frame_s=1, max_frame=500, peak_mb=100, busy=False, presents=[])
+                with patch.object(regress, 'run_env', return_value=({}, None)), patch.object(regress, 'run_watched', watched):
+                    run = regress.smoke_run(NS(kind='nvn', id='game', get_depth_zero=zero), None,
+                                            dict(host='host', modules='modules', host_key='h', modules_key='m'), route, True, out, None)
+                failures = regress.run_failures(run, route)
+                if failure:
+                    self.assertTrue(any(failure in f for f in failures), failures)
+                    good = dict(run, pipeline={})
+                    self.assertTrue(regress.smoke_diff([good], [run], route)[0]['NEW-FAIL'])
+                    self.assertIn('pipeline', regress.public_run(run))
+                else: self.assertEqual(failures, [])
+
     def test_each_candidate_screenshot_is_checked(self):
         route = {'reach': None}
         good = {'exit': None, 'max_frame': 500, 'shots': {'8': {'dhash': '0' * 16, 'rgb16': '00' * 768}}}
@@ -556,7 +587,8 @@ class Validated(unittest.TestCase):
         route = {'reach': (120, 5), 'shots': [4]}
         green = {'exit': None, 'max_frame': 180, 'reached': True, 'secs': 6, 'shots': {'4': {'dhash': '0123456789abcdef', 'rgb16': '00' * 768}}}
         for failure in ({'crash': {'signal': 'SIGSEGV'}}, {'exit': 1}, {'hang_at_s': 3}, {'max_frame': -1},
-                        {'reached': False}, {'prebuild': {'exit': 1}}, {'shots': {}}):
+                        {'reached': False}, {'prebuild': {'exit': 1}}, {'shots': {}},
+                        {'pipeline': {'depth_profile': 'gl', 'depth_runtime': ['zero']}}, {'pipeline': {'stamp_mismatch': True}}):
             with self.subTest(failure=failure), tempfile.TemporaryDirectory() as td:
                 failed = green | failure
                 levels, known, _ = regress.smoke_diff([failed], [failed], route)

@@ -65,7 +65,8 @@
 #   PAIR = {"vs", "entry", "ps", "missing": [locnN], "type": ["locnN vs-type/ps-type"]}
 #   RUN = {"exit": code or -signal or null (stopped by the harness), "crash": {"line", "type", "signal"} or null, "hang_at_s", "hang_sample" (file name or null), "hang_dump" (the log holds the host's state dump), "first_frame_s", "max_frame", "reached",
 #          "prepare_s", "prebuild": {"secs", "pairs", "built", "archived", "failed", "done", "hang"}, "fps", "frame_p50", "frame_p99", "frame_max", "dropped", "over_budget",
-#          "peak_footprint_mb", "red": {normalized text: count}, "shots": {<s>: {"dhash"}}, "secs", "modules", "host"}
+#          "peak_footprint_mb", "red": {normalized text: count}, "shots": {<s>: {"dhash"}}, "secs", "modules", "host",
+#          "pipeline": {"depth_profile": "gl"|"zero", "depth_runtime": ["gl"|"zero"], "stamp_mismatch": bool} (NVN only; no depth observation = [])}
 #   status per game, worst first: ERROR (the harness could not check it), NEW-FAIL (something that worked in the baseline fails: a shader, the interface check, a crash, a hang, the frame
 #   not reached), REGRESSION (new [RED] lines, a screenshot beyond the tolerance, frame time, memory or prepare time worse beyond it), CHANGED (MSL or numbers differ, nothing worse),
 #   PASS. "known" lists failures the baseline has too (they do not fail the check).
@@ -569,6 +570,10 @@ def build_summary(m):
 
 def host_for(tree, g, jobs):
     srcs = [p for d in HOST_DIRS for p in sorted((tree.path / d).iterdir()) if p.is_file() and p.suffix in ('.c', '.m', '.h', '.S', '.inc')]
+    if (tree.path / 'dm/gfx/tools/host_msl.py').is_file():   # older baseline revisions compiled these sources at run time
+        r = sh(['make', '-s', f'GAME={g.id}', 'host_msl'], cwd=tree.path / 'dm/host', env=g.env(tree))
+        if r.returncode: raise HarnessError(f'{g.id}: host shader libraries of {tree.id} do not build:\n{r.stdout}{r.stderr}')
+        srcs.append(tree.path / 'dm/host/gen/msl-macosx/host_msl_gen.h')   # includes sources, compiler, SDK and deployment target, even on a cache hit
     key = digest(srcs + [tree.path / 'dm/host/Makefile', g.profile_dir(tree) / 'game.tsv', tree.path / 'dm/games/game.py'], g.id.encode())[:16]
     dst = game_root(g) / 'host' / key / 'dmhost'
     if dst.is_file(): return dst, key, 0
@@ -777,6 +782,14 @@ def read_log(text):
     return red, crash, float(m[-1]) if m else None, pb
 
 
+def pipeline_status(text, zero):
+    """The depth selected by NVN versus the profile's archive input, and a bundled archive whose stamp was rejected (issue #758).
+    No depth line means unknown, not GL: a route that never initializes NVN gives no evidence about the game's mode."""
+    modes = re.findall(r'\[(?:nvn-mtl|nvn)\] depth mode:? near=(0|-w)\b', text)
+    return {'depth_profile': 'zero' if zero else 'gl', 'depth_runtime': list(dict.fromkeys('zero' if m == '0' else 'gl' for m in modes)),
+            'stamp_mismatch': bool(re.search(r'pipeline archive bundled with the app: made for [^\n]*, this run needs ', text))}
+
+
 def crash_report(t0):
     d = Path.home() / 'Library/Logs/DiagnosticReports'
     for p in sorted(d.glob('dmhost*.ips'), key=lambda p: p.stat().st_mtime, reverse=True) if d.is_dir() else []:
@@ -835,7 +848,8 @@ def save_digest(d):
 def smoke_context(g, art, route, a, hardware):
     """Reuse a baseline only for the same route, save bytes, build artifacts, machine and run settings. Old records without this context are recorded again."""
     env = {k: v for k, v in os.environ.items() if k.startswith(('DM_', 'DMSH_', 'XLATE_'))}
-    return json.loads(json.dumps({'route': route, 'save': save_digest(save_source(g, route)), 'host': art['host_key'], 'modules': art['modules_key'], 'chain': art['manifest']['key'],
+    # Version 2 also records pipeline_status: older cached runs cannot establish whether the profile matched runtime depth.
+    return json.loads(json.dumps({'checks': 2, 'route': route, 'save': save_digest(save_source(g, route)), 'host': art['host_key'], 'modules': art['modules_key'], 'chain': art['manifest']['key'],
                                  'profile': digest(sorted(art['profile'].glob('*.tsv'))), 'machine': hardware, 'tools': a.tools_fp, 'env': env, 'overrides': a.env,
                                  'no_hud': a.no_hud, 'runs': a.runs, 'prebuild_limit': a.prebuild_limit, 'prebuild_hang': a.prebuild_hang}))
 
@@ -880,6 +894,7 @@ def smoke_run(g, tree, art, route, quick, outdir, a):
                     frames=outdir / 'frames.tsv' if g.kind == 'nvn' else None)
     text = (outdir / 'log.txt').read_text(errors='replace')
     red, crash_line, prep, _ = read_log(text)
+    if g.kind == 'nvn': res['pipeline'] = pipeline_status(text, g.get_depth_zero)
     res.update(exit=r['exit'], hang_at_s=r['hang_at_s'], hang_sample=r['hang_sample'], hang_dump='state dump (DM_CTL dump)' in text, first_frame_s=r['first_frame_s'], max_frame=r['max_frame'], peak_footprint_mb=r['peak_mb'], busy=r['busy'],
                prepare_s=prep, red=dict(red), crash=None, covered=text.count('front end: window covered'))
     if crash_line or (r['exit'] not in (None, 0)):
@@ -1003,6 +1018,10 @@ def run_failures(r, route):
     if r.get('hang_at_s') is not None: f.append(f"hang (no frame after {r['hang_at_s']} s)")
     if r.get('reached') is False and route.get('reach'): f.append(f"frame {route['reach'][0]} not reached by {route['reach'][1]:g} s (max {r.get('max_frame')})")
     if r.get('max_frame', -1) < 0: f.append('no frame')
+    pipeline = r.get('pipeline') or {}
+    for mode in pipeline.get('depth_runtime', []):
+        if mode != pipeline['depth_profile']: f.append(f"profile depth_mode {pipeline['depth_profile']} disagrees with runtime depth_mode {mode}: rebuild the pipeline archive with the observed mode")
+    if pipeline.get('stamp_mismatch'): f.append('bundled pipeline archive stamp does not match this run (chain, depth or pairs): rebuild the archive')
     pb = r.get('prebuild')
     if pb:
         if pb.get('exit') != 0: f.append(f"prebuild did not exit successfully (exit {pb.get('exit')})")

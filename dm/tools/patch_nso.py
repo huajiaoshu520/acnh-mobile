@@ -13,7 +13,7 @@
 #   Registered observation gates (OBS of the patch files, restricted by build ID): one instruction at the entry is replaced with "enter the host observation callback → execute the original instruction → jump back", so diagnostics modify zero code at runtime; listed in <name>.obs.tsv
 # The key page only stores "actual key number × 8" at the end of the data segment, and patch code fetches thread slots indirectly through the key page: the loader may use any key number.
 # Output: <name>.patched.bin (key page and patch area appended after the image at PATCH_OFF; when that would start beyond 112 MB the patch area sits before the base, see FAR; a text longer than a B reaches adds a second one after the image, see TWO), <name>.fixups.tsv (layout and key page index header), <name>.gates.tsv, <name>.sites.tsv, <name>.cuts.tsv, <name>.obs.tsv, <name>.changed.tsv (the text words whose instructions no longer run as the file has them)
-import struct, re, sys, os, glob, shlex, types, importlib.util
+import struct, re, sys, os, glob, shlex, types, importlib.util, multiprocessing, signal
 from itertools import combinations
 import capstone
 if capstone.cs_version()[0] != 5:   # the rewriter uses Capstone 5's names (CS_ARCH_ARM64, ARM64_OP_*), which Capstone 6 renamed: see "Capstone API version" in docs/reference/rewriter.md
@@ -22,6 +22,12 @@ from capstone import *
 from capstone.arm64 import ARM64_OP_IMM, ARM64_OP_MEM, ARM64_OP_REG
 import nso, nso_asm
 from nso_asm import *   # the instruction encoders (B, ADRP, LDRX, ...), shared with the per-build patch files
+
+# The NSP script terminates a failed or cancelled rewrite with SIGTERM. Exit through the pool's context manager so it reaps the workers too.
+signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
+try: WORKERS = int(os.environ.get('DM_REWRITE_J') or os.cpu_count() or 1)
+except ValueError: sys.exit('[RED] DM_REWRITE_J must be a positive integer')
+if WORKERS < 1: sys.exit('[RED] DM_REWRITE_J must be a positive integer')
 
 src, outdir, NAME = sys.argv[1], sys.argv[2], sys.argv[3]
 # An NSO, or an NRO (a module the game loads at run time with nn::ro, Super Smash Bros. Ultimate's fighter code), rewritten as an NSO of the same layout would be. nso.py checks the file
@@ -570,7 +576,27 @@ def x18_words(lo, hi):
             if R18.search(op): out.add(addr)
         a = last + 4 if last + 4 >= end else last + 8   # the chunk is done, or the word after the last decoded one is no instruction
     return out
-x18 = set().union(*(x18_words(s, e) for s, e in CODE_RANGES))
+# The x18 scan and the spin wait search only read the original image, so they can run in worker processes.
+def in_parallel(fn, jobs):
+    """Returns [fn(*job) for job in jobs], computed in forked worker processes.
+    The workers are forked on each call, so they see the module's state as it is at that point."""
+    if WORKERS < 2 or len(jobs) < 2:
+        return [fn(*job) for job in jobs]
+    with multiprocessing.get_context('fork').Pool(min(WORKERS, len(jobs))) as pool:
+        return pool.starmap(fn, jobs)
+
+def find_x18_words():
+    """x18_words over all the code, in 1 MB pieces"""
+    pieces = []
+    for start, end in CODE_RANGES:
+        for lo in range(start, end, 0x100000):
+            pieces.append((lo, min(lo + 0x100000, end)))
+    words = set()
+    for found in in_parallel(x18_words, pieces):
+        words |= found
+    return words
+
+x18 = find_x18_words()
 kinds = {}
 # Spin wait candidates (see "Spin waits" below): backward direct branches (b, b.cond, cbz / cbnz, tbz / tbnz) at most SPIN_WIN bytes back, by target
 SPIN_WIN, SPIN_TOPS = 512, {0x16, 0x17, 0x54, 0x34, 0x35, 0xB4, 0xB5, 0x36, 0x37, 0xB6, 0xB7}
@@ -704,6 +730,45 @@ def jump_offsets(insl, j, copy_first=False, far_base=False, forward_base=False):
     if page is None: return None
     tb = page + lo
     return [tb + struct.unpack_from('<i', IMG, tb + 4 * i)[0] for i in range(n)]
+def jump_zero_extended(insl, j):
+    """cmp wS,#N; b.hi exit; and xI,xS,#0xffffffff; ldrsw xE,[xB,xI,lsl #2]; add x18,xE,xB; br x18.
+    Mario Tennis Aces 1.0.0 main+0x35837c zero-extends the checked value rather than checking another masked copy. Require straight-line data flow from the guard to the br,
+    with no entry past the check, and decoded targets outside that run. Tried after every older recognizer, so previously recognized tables keep their targets."""
+    ctx = insl[max(0, j - 16):j + 1]
+    add = next((p for p in reversed(ctx[:-1]) if p.mnemonic == 'add' and re.fullmatch(r'x18, x\d+, x\d+', p.op_str)), None)
+    if not add: return None
+    _, ent, base = add.op_str.split(', '); ka = ctx.index(add)
+    ld = next((p for p in reversed(ctx[:ka]) if p.mnemonic == 'ldrsw' and re.fullmatch(rf'{ent}, \[{base}, x\d+, lsl #2\]', p.op_str)), None)
+    if not ld: return None
+    kl = ctx.index(ld); idx = ld.op_str.split(', ')[2]
+    if base in (ent, idx): return None
+    mask = next((p for p in reversed(ctx[:kl]) if p.mnemonic == 'and' and re.fullmatch(rf'{idx}, x\d+, #0xffffffff', p.op_str)), None)
+    if not mask: return None
+    km = ctx.index(mask); src = mask.op_str.split(', ')[1]
+    check = next((p for p in reversed(ctx[:km]) if p.mnemonic == 'cmp' and re.fullmatch(rf'w{src[1:]}, #(0x[0-9a-f]+|\d+)', p.op_str)), None)
+    if not check: return None
+    kc = ctx.index(check); branch = ctx[kc + 1]
+    if branch.mnemonic != 'b.hi': return None
+    run = ctx[kc:]; head, end = check.address, insl[j].address
+    if any(b.address != a.address + 4 for a, b in zip(run, run[1:])): return None
+    if head <= branch.operands[0].imm <= end: return None
+    # Calls and system calls can overwrite registers without appearing in Capstone's register writes. Reject control flow and traps after the guard.
+    if any(p.mnemonic in ('b', 'bl', 'br', 'blr', 'ret', 'cbz', 'cbnz', 'tbz', 'tbnz', 'svc', 'hvc', 'smc', 'brk', 'hlt', 'eret', 'drps') or p.mnemonic.startswith('b.') for p in ctx[kc + 2:-1]): return None
+    def writes(p, reg):   # Capstone lists a compare's first operand as written; only its flags change.
+        names = [p.reg_name(r) for r in p.regs_access()[1]]
+        return p.mnemonic not in ('cmp', 'cmn', 'tst') and any(name is None or name in (reg, 'w' + reg[1:], {'x29': 'fp', 'x30': 'lr'}.get(reg)) for name in names)
+    if any(writes(p, src) for p in ctx[kc + 2:km]) or any(writes(p, idx) for p in ctx[km + 1:kl]) or \
+       any(writes(p, ent) or writes(p, base) for p in ctx[kl + 1:ka]) or any(writes(p, 'x18') for p in ctx[ka + 1:-1]): return None
+    for p in insl:
+        if p.mnemonic in ('b', 'bl', 'cbz', 'cbnz', 'tbz', 'tbnz') or p.mnemonic.startswith('b.'):
+            if head < p.operands[-1].imm <= end: return None
+    if any(head < t <= end for targets in tabjumps.values() for t in targets): return None
+    if any(b <= end and b + 4 * width > head + 4 for b, width in jumps.values()): return None
+    tb = copied_base(insl, insl.index(ld), base); n = int(check.op_str.split('#')[1], 0) + 1
+    if tb is None or tb < 0 or tb + 4 * n > len(IMG): return None
+    targets = [tb + struct.unpack_from('<i', IMG, tb + 4 * i)[0] for i in range(n)]
+    addresses = {p.address for p in insl}
+    return targets if all(t in addresses and not head < t <= end for t in targets) else None
 def forward_table_base(insl, k, rb, n):
     """A loop's base initialized after its dispatch in address order (Blasphemous 1.0.8 main+0xae95f8: x17 is set at +0xae96dc, then the block branches backward).
     Used only after every older recognizer failed. Require exactly two writers of the full base in the function, an adjacent adrp + add after the load, no call that can clobber it,
@@ -1073,6 +1138,7 @@ for fa, fb in funcs:
                 if not tgt: tgt = jump_masked_pred(insl, j)   # the check on a masked copy made in the block, the index masked in the block that branches to it
                 if not tgt: tgt = jump_masked_not(insl, j)   # a complemented low-bit index with its zero case branched away: exactly mask entries
                 if not tgt: tgt = jump_offsets(insl, j, copy_first=True, far_base=True, forward_base=True)   # a unique base initialized in a later block that branches backward
+                if not tgt: tgt = jump_zero_extended(insl, j)   # a 32-bit checked value zero-extended into the index, with its full path to the br verified
                 assert tgt, f'jump table {ins.address:x}'
                 tabjumps[ins.address] = tgt; continue
             jumps[ins.address] = (base, width)
@@ -1184,6 +1250,7 @@ if UE_CALL is not None:
     region_obs.append((UE_CALL, OBS_UE_MALLOC, f'{NOP:08x}', 'FMallocBinned3 constructor call (cut): the object in x0; the host puts its allocator\'s vtable in (hle_uemalloc.c)'))
 # Unreal's engine region (above): the gate on the store of its size, which the callback changes in that register and x1, the size the call asks for
 if UE_REGION is not None:
+    assert UE_REGION_REG is not None, 'engine region gate has no size register'
     assert UE_REGION not in kinds and not any(lo <= UE_REGION < hi for wseg in windows for lo, hi in [(wseg[0].address, wseg[-1].address + 4)]), f'engine region gate conflicts with a rewrite site {UE_REGION:#x}'
     region_obs.append((UE_REGION, OBS_UE_REGION | UE_REGION_REG << 8, f'{struct.unpack_from("<I", IMG, UE_REGION)[0]:08x}',
                        f'Unreal\'s engine region: its size in x{UE_REGION_REG}, stored before nninitStartup reserves it; the host gives what the alias region has room for (hle_svc.c)'))
@@ -1506,7 +1573,22 @@ def spin_emit(g):
         if x.mnemonic == 'b': put_branch(b, cpy[T])
         else: st = here(); emit(spin_rebranch(x, here(), cpy[T])); emit(B(here(), b + 4)); put_branch(b, st)
     stat('spin')
-spin_regions = [g for g in (spin_region(T, spin_cand[T]) for T in sorted(spin_cand)) if g]   # all found on the unchanged image first: emitting patches back-edges
+spin_heads = sorted(spin_cand)
+
+def spin_heads_with_region(first, step):
+    return [T for T in spin_heads[first::step] if spin_region(T, spin_cand[T])]
+
+def find_spin_regions():
+    """spin_region for every candidate head that has one, in address order. Each job takes every nth head, so the slow stretches
+    of code are spread across the workers. A region holds capstone objects, which can't be sent back from a worker, so the workers
+    only say which heads have one and the regions are built again here."""
+    step = min(8 * WORKERS, len(spin_heads))
+    heads = []
+    for found in in_parallel(spin_heads_with_region, [(first, step) for first in range(step)]):
+        heads += found
+    return [spin_region(T, spin_cand[T]) for T in sorted(heads)]
+
+spin_regions = find_spin_regions()   # all found on the unchanged image first: emitting patches back-edges
 spin_sites = [(g['T'], sorted(g['valid']), sum(len(g['nodes'][a]['ins']) for a in g['R'])) for g in spin_regions]
 for g in spin_regions: spin_emit(g)
 if os.environ.get('DM_SPIN_LIST'):

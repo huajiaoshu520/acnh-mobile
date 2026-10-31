@@ -152,7 +152,7 @@ class Build(unittest.TestCase):
 
     def main(self, *extra):
         args = ['--game', '0100000000001000', '--msl', str(self.lib), '--out', str(self.out), '--work', str(self.work), *extra]
-        with mock.patch.object(po.subprocess, 'run', self.fake_run), mock.patch.dict(os.environ, DM_GAMES_DIR=str(self.prof.parent)), contextlib.redirect_stdout(io.StringIO()):
+        with mock.patch.object(po.subprocess, 'run', self.fake_run), mock.patch.dict(os.environ, DM_GAMES_DIR=str(self.prof.parent) + os.pathsep + os.environ.get('DM_GAMES_DIR', '')), contextlib.redirect_stdout(io.StringIO()):
             return po.main(args)
 
     def test_build_reuse_and_stamp(self):
@@ -184,7 +184,7 @@ class Build(unittest.TestCase):
             cmd = [str(c) for c in cmd]
             if cmd == ['sw_vers', '-productVersion']: return subprocess.CompletedProcess(cmd, 0, '26.6.2\n', '')
             return self.fake_run(cmd)
-        with mock.patch.object(po.subprocess, 'run', run), mock.patch.dict(os.environ, DM_GAMES_DIR=str(self.prof.parent)), contextlib.redirect_stdout(io.StringIO()):
+        with mock.patch.object(po.subprocess, 'run', run), mock.patch.dict(os.environ, DM_GAMES_DIR=str(self.prof.parent) + os.pathsep + os.environ.get('DM_GAMES_DIR', '')), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(po.main(['--game', '0100000000001000', '--msl', str(self.lib), '--out', str(self.out), '--work', str(self.work), '--platform', 'macos', '--gpu', 'g16s']), 0)
         self.assertEqual(self.calls[0][:8], ['xcrun', '-sdk', 'macosx', 'metal-tt', '-arch', 'applegpu_g16s', '-macos-version-min', '26.0'])
 
@@ -193,6 +193,18 @@ class Build(unittest.TestCase):
         self.assertIn('depth\tnear=-w\n', (self.out / 'prebuilt.tsv').read_text()); self.assertEqual(self.calls, [])
         (self.prof / 'game.tsv').write_text('title_id\t0100000000001000\nname\tTest\ndepth_mode\tnear0\n')
         with self.assertRaises(SystemExit): self.main('--script-only')
+
+    def test_profile_archives_match_observed_depth(self):
+        # Issue #758 and its seven-game follow-up: these builds' NVN calls select near=0 (evidence in each game note).
+        # Exercise the real profiles through the builder with synthetic pairs: an omitted key must not quietly build main0.
+        profiles = ('01008CF01BAAC000', '010089C01E9CA000', '010056B015FE8000', '01007BB017812000',
+                    '01003E601E324000', '010020400E1C2000', '0100429011144000', '010014C011146000')
+        for gid in profiles:
+            with self.subTest(game=gid):
+                self.main('--game', gid, '--pairs', str(self.prof / 'shader_pairs.tsv'), '--script-only')
+                self.assertIn('depth\tnear=0\n', (self.out / 'prebuilt.tsv').read_text())
+                script = json.loads(next(self.work.glob('*.mtl4-json')).read_text())
+                self.assertEqual(script['pipeline_descriptors']['render_pipeline_descriptors'][0]['vertex_function_descriptor'], 'fnd:v_bp.main0_z')
 
     def test_library_content_invalidates_archive(self):
         self.main()
@@ -236,7 +248,7 @@ class Build(unittest.TestCase):
             cmd = [str(c) for c in cmd]
             if '-version' in cmd or '--show-sdk-version' in cmd: return self.fake_run(cmd)
             return subprocess.CompletedProcess(cmd, 1)
-        with mock.patch.object(po.subprocess, 'run', fail), mock.patch.dict(os.environ, DM_GAMES_DIR=str(self.prof.parent)), contextlib.redirect_stdout(io.StringIO()), self.assertRaises(SystemExit):
+        with mock.patch.object(po.subprocess, 'run', fail), mock.patch.dict(os.environ, DM_GAMES_DIR=str(self.prof.parent) + os.pathsep + os.environ.get('DM_GAMES_DIR', '')), contextlib.redirect_stdout(io.StringIO()), self.assertRaises(SystemExit):
             po.main(['--game', '0100000000001000', '--msl', str(self.lib), '--out', str(self.out), '--work', str(self.work)])
         self.assertEqual(list(self.out.glob('*.mtl4a')), [])
 

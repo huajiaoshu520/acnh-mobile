@@ -112,7 +112,7 @@ class Progress:
     """The console view of the build: one line per stage, "[k/n] stage · step", with a bar, done/total, percent, elapsed time and ETA when the work can be counted, else a spinner and the elapsed time.
     Modes: bar = the line is redrawn in place (a terminal, Spyder's console) and replaced by a ✓ line when the stage ends; lines = a plain line when a stage or step starts, every BEAT seconds and at the end
     (for output piped to a file); off = only each stage's start and end lines. Counters come from set(), or from a poll function that runs in a thread of its own (it may walk a big folder) and returns set()'s arguments.
-    Messages go through say(), which prints them above the live line. json (for a program that shows the build) = one JSON object per stdout line instead: the events stage, step, progress, stage_end and say;
+    Messages go through say(), which prints them above the live line. json (for a program that shows the build) = one JSON object per stdout line instead: the events stage, step, progress, stage_end, say and shaders_stale;
     a count change goes out at most every JSON_INTERVAL seconds (the ticker sends one held back), any other change at once"""
     SPIN, BLOCKS, POLL, JSON_INTERVAL = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏', ' ▏▎▍▌▋▊▉', 1.0, 0.5
 
@@ -194,6 +194,10 @@ class Progress:
                 self._json({'ev': 'stage_end', 'k': self.k, 'name': st.name, 'ok': ok, 'summary': summary, 'elapsed': round(time.time() - st.t0, 3)})
                 return
             self._out(f'[{clock()}] {"✓" if ok else "✗"} [{self.k}/{self.n}] {st.name} ({hms(time.time() - st.t0)})' + (f': {summary}' if summary else ''))
+
+    def event(self, ev, **fields):   # a build event beside the stage lines (json mode only: the human modes get the message that goes with it from say())
+        with self.lock:
+            if self.mode == 'json': self._json({'ev': ev, **fields})
 
     def say(self, msg):
         with self.lock:
@@ -1099,6 +1103,9 @@ def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
     Reused when the modules, patch_nso.py (with nso.py, nso_code.py, nso_asm.py and the selected profile's function rules / the patch files of their builds), its switches and capstone are as at the
     last successful rewrite (Monster Hunter Rise's main alone takes 5.5 min). Returns the profile"""
     import capstone
+    try: workers = int(env['DM_REWRITE_J']) if env.get('DM_REWRITE_J') else None
+    except ValueError: raise BuildError('DM_REWRITE_J must be a positive integer') from None
+    if workers is not None and workers < 1: raise BuildError('DM_REWRITE_J must be a positive integer')
     PROG.stage('rewrite', step='checking the inputs')
     nro_dir = out.with_name('nro_' + out.name.removeprefix('patched_'))
     nros = collect_nros(py, repo, rfs.source(exe_dir.parent), nro_dir, env, logs)
@@ -1119,11 +1126,13 @@ def rewrite(py, repo, exe_dir, out, env, logs, g, provisional=False):
     if manifest.is_file(): shutil.copyfile(manifest, tmp / 'nro.tsv')   # refused-only manifests preserve the game's offline registration path too
     PROG.set(step=', '.join(mods) + (f' and {len(nros)} NROs' if nros else ''), done=0, total=len(names), unit='modules')
     procs, logf, todo, cores = {}, {}, list(names), max(2, os.cpu_count() or 4)
+    jobs = max(1, min(cores, 2 * cores // max(1, len(names))))   # patch_nso.py workers per module, so parallel rewrites don't oversubscribe
+    rewrite_env = dict(env, DM_REWRITE_J=str(workers if workers is not None else jobs))
     try:
         while todo or procs:
             while todo and len(procs) < cores:
                 m = todo.pop(0); logf[m] = open(logs / f'rewrite_{m}.log', 'w')
-                procs[m] = subprocess.Popen([str(py), str(repo / 'dm/tools/patch_nso.py'), str(src[m]), str(tmp), m], env=env, stdout=logf[m], stderr=subprocess.STDOUT)
+                procs[m] = subprocess.Popen([str(py), str(repo / 'dm/tools/patch_nso.py'), str(src[m]), str(tmp), m], env=rewrite_env, stdout=logf[m], stderr=subprocess.STDOUT)
             for m in [m for m in procs if procs[m].poll() is not None]:
                 p = procs.pop(m); logf[m].close(); PROG.set(done=len(names) - len(todo) - len(procs))
                 if p.returncode:
@@ -1174,14 +1183,14 @@ def build_mac_host(repo, out, env, logs, g):
     and the macOS SDK) are as at the last build into out. The host runs the game's own arm64 code natively, so an Intel Mac stops here (GitHub issue #54)"""
     if not apple_silicon(): raise BuildError('this step boots the game in the Mac host, which runs the game\'s own arm64 code natively: it needs a Mac with Apple silicon, and this Mac has an Intel processor')
     host = repo / 'dm/host'
-    run(['make', '-s', f'GAME={g.id}', f'gen/{g.id}/game_profile.h', 'gen/vpx/libvpx.a'], logs / 'mac_host_make.log', env=env, cwd=host)
+    run(['make', '-s', f'GAME={g.id}', f'gen/{g.id}/game_profile.h', 'gen/vpx/libvpx.a', 'host_msl'], logs / 'mac_host_make.log', env=env, cwd=host)
     dry = subprocess.run(['make', '-n', '-B', f'GAME={g.id}', 'dmhost'], env=env, cwd=host, capture_output=True, text=True)
     line = next((l for l in dry.stdout.splitlines() if ' -o dmhost ' in l), None)
     if not line: raise BuildError(f'make -n gave no compile line for the Mac host: {dry.stderr.strip()[-500:]}')
     cmd = shlex.split(line); cmd[cmd.index('-o') + 1] = out
     kf, tp = out.with_name(out.name + '.key'), repo / 'dm/third_party'
     srcs = [p for d in HOST_DIRS for p in sorted((repo / d).iterdir()) if p.is_file() and p.suffix in ('.c', '.m', '.h', '.S', '.inc')]
-    key = fingerprint(cmd, ('files', srcs + [host / f'gen/{g.id}/game_profile.h', host / 'gen/vpx/libvpx.a', tp / 'stb_vorbis/stb_vorbis.c']),
+    key = fingerprint(cmd, ('files', srcs + [host / f'gen/{g.id}/game_profile.h', host / 'gen/msl-macosx/host_msl_gen.h', host / 'gen/vpx/libvpx.a', tp / 'stb_vorbis/stb_vorbis.c']),
                       ('tree', tp / 'vulkan-headers/include'), ('tree', tp / 'libvpx/vpx'), ('cmd', ['clang', '--version']), ('cmd', ['xcrun', '--show-sdk-build-version']), env=env)
     if out.is_file() and reused(kf, key) is not None: return out
     rmtree(kf); out.parent.mkdir(parents=True, exist_ok=True)
@@ -1722,16 +1731,21 @@ def split_shaders(py, repo, roms, mains, pkg, env, logs, g, provisional=False, o
     return key and package_key(pkg)
 
 
+def shader_keys(g):   # the base shaders dmsh_build.py builds, shared by progress and the stale-library event
+    keys = set()
+    for ln in g.table('shader_map.tsv').read_text(errors='replace').splitlines():
+        c = ln.rstrip('\n').split('\t')
+        if len(c) > 4 and c[0].endswith('.bin'): keys.add(c[3])
+    return keys
+
+
 class ShaderWatch:
     """Progress of dmsh_build.py, read from the files it writes (it prints nothing until it ends). It works in three phases:
     the cache check (a hit restores <key>_b.json into the library directory b-<chain>/: the iOS one, or the Mac's for a Mac-only build; a miss writes <key>.bin into its temporary folder dmsh_* under WORK),
     the translation of the misses (<key>.spv in the temporary folder), and the compile, which takes the keys in a fixed order (sorted, the vertex shaders with pixel pairs last)
     and writes <key>_b.json again for every miss and every pixel shader: the furthest key written so far tells how far it got"""
     def __init__(self, g, out, tmp, pso_pairs=None):   # out: the library directory b-<chain>/ (the iOS one, or the Mac's for a Mac-only build)
-        keys = set()
-        for ln in g.table('shader_map.tsv').read_text(errors='replace').splitlines():   # the keys dmsh_build.py builds: column 4 of the rows from a shader package
-            c = ln.rstrip('\n').split('\t')
-            if len(c) > 4 and c[0].endswith('.bin'): keys.add(c[3])
+        keys = shader_keys(g)
         pairs = set()
         for path in (g.table('shader_pairs.tsv'), pso_pairs):
             if path and path.is_file():
@@ -1801,6 +1815,27 @@ def prune_stale_chains(sh, chain):
     return names
 
 
+def stale_shaders(py, repo, env, lib_dirs, chain, g):
+    """Why cached shader libraries cannot be reused by the build that starts: (reason, old, new, count) or None. 'chain': library folders b-<V> of another translation chain (lib_dirs: the
+    selected targets' cache folders) have libraries without a completed current build; old is those folders' names, new b-<chain>. A full build writes its stamp only at the end,
+    so a partial current-chain output must not hide the old libraries. 'inputs': the current chain's stamp names different profile inputs (dmsh_chain.py --inputs).
+    count: base libraries scheduled, once per current shader key and selected target, including cache restores, never copies retained in older chains"""
+    cur = [d / f'b-{chain}' for d in lib_dirs]
+    cached = [d for d in cur if next(d.glob('*_b.metallib'), None) is not None]
+    other = []
+    for root, d in zip(lib_dirs, cur):
+        if d in cached and lib_head(d): continue
+        other.extend(old for old in root.glob('b-*') if old.name != d.name and next(old.glob('*_b.metallib'), None) is not None)
+    if other: return ('chain', ', '.join(sorted({d.name for d in other})), f'b-{chain}', len(shader_keys(g)) * len(lib_dirs))
+    if not cached: return None
+    r = subprocess.run([str(py), str(repo / 'dm/gfx/tools/dmsh_chain.py'), '--inputs'], env=env, capture_output=True, text=True)
+    new = r.stdout.split()[-1] if r.returncode == 0 and r.stdout.split() else None
+    for d in cached:
+        have = lib_head(d)   # '# chain b-<V> inputs <digest>', None without a stamp
+        if new and have and have.split()[-1] != new: return ('inputs', have.split()[-1], new, len(shader_keys(g)) * len(lib_dirs))
+    return None
+
+
 def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False):
     """The iOS shader libraries (dmsh_build.py, which also builds the Mac's into sh/cache when the build wants them), or with mac only the Mac's (a Mac-only build: no IOSOUT). Returns the folder the host takes
     them from. Reused when the shader package (pkg_key, its content; None never reuses) and the chain's tools, translator binaries, profile and compilers are as at the last successful build:
@@ -1841,6 +1876,13 @@ def build_shaders(py, repo, sh, xlate, env, logs, g, pkg_key=None, mac=False):
     benv = dict(env, XLATE=str(xlate), IOSOUT=str(ios), DMSH_TARGETS='mac' if mac else 'mac,ios' if keep_mac else 'ios')
     if ALLOW_OTHER_METAL: benv['DM_ALLOW_OTHER_METAL'] = '1'
     if mac: del benv['IOSOUT']   # dmsh_build.py builds the iOS libraries only with IOSOUT
+    try: stale = stale_shaders(py, repo, env, [sh / 'cache'] if mac else [sh / 'cache', ios] if keep_mac else [ios], chain, g)
+    except Exception: stale = None   # a note never stops the build
+    if stale:
+        reason, old, new, n = stale
+        PROG.event('shaders_stale', reason=reason, old=old, new=new, count=n)
+        say(f'[NOTE] cached shader libraries cannot be reused ({old} -> {new}): ' + ('the translation chain changed' if reason == 'chain' else 'the game profile\'s shader inputs changed')
+            + f'; {n:,} base libraries scheduled (including cache restores; later builds reuse as before)')
     run([py, repo / 'dm/gfx/tools/own_compilers.py', sh / 'pkg', sh / 'cache'], log, env=benv)
     PROG.watch(None)
     if not chain_tables(py, repo, sh, env, logs, g, chain): raise BuildError(f'no stamped Mac shader outputs in {sh / "cache" / f"b-{chain}"} (inputs.tsv): dmsh_build.py did not finish a full build')

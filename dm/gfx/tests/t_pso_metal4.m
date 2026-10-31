@@ -22,10 +22,10 @@ int main(void) { @autoreleasepool {
  d.colorAttachments[0].sourceRGBBlendFactor=MTLBlendFactorSourceAlpha;
  d.colorAttachments[0].destinationRGBBlendFactor=MTLBlendFactorOneMinusSourceAlpha;
  id<MTLRenderPipelineState> b=pso_build(d,&error);assert(b && g_pb_reused>=1 && g_pb_spec>=2);
- dispatch_sync(g_arch_q, ^{ arch_flush(); });
+ arch_flush_wait();
  assert(g_arch_flush_ok);
  NSArray *files=[NSFileManager.defaultManager contentsOfDirectoryAtPath:dir error:nil];assert(files.count>0);
- ga_exit();[NSFileManager.defaultManager removeItemAtPath:dir error:nil];
+ arch_flush_wait();[NSFileManager.defaultManager removeItemAtPath:dir error:nil];
  puts("Metal 4 real-device test: base compile, specialization, reuse and archive flush passed");
  }return 0;
 }
