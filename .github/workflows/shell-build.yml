@@ -27,7 +27,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install rewriter test dependency
-        run: python -m pip install capstone==5.0.7
+        run: python -m pip install capstone==5.0.7 lz4==4.4.5
       - name: Require Duo-capable SDK
         run: |
           xcodebuild -version
