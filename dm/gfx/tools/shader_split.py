@@ -39,6 +39,7 @@
 #       .pak archives and of the startup material archive LZSS-compressed in main, see rfrm_shaders and retro_main_forms
 #   · BERG (Snowdrop, Mario + Rabbids Sparks of Hope): shader objects in the individually zstd-compressed records of its SDF data slices, see snowdrop_shaders
 #   · bnd2 (Criterion's Bundle 2, Need for Speed: Hot Pursuit Remastered): whole GLSLC outputs in the zlib resources of SHADERS.BNDL, see bnd2_resources and bnd2_shaders
+#   · Heaps (Dead Cells): whole GLSLC outputs in base64 after the GLSL of the engine's shader cache (shaders.cache.nx), inside its PAK archive, see heaps_pak_files and heaps_shaders
 #   · Frostbite (EA SPORTS FC 27): the CompiledBytecode resources of the bundles its superbundle tables (.toc) list, in its cas files (Oodle Leviathan, decoded by the game's own decoder in the
 #       Mac host), each a VNVN record with one code area and control section (frostbite.py), see frostbite_jobs and frostbite_shaders
 #   · Unreal Engine 3 (Batman: Arkham Knight): shader records in its global shader cache (BMSG) and in the packages (the combined shader cache), whose compressed chunks are Oodle blocks decoded by the game's own decoder in the Mac host, see ue3_body and ue3_shaders
@@ -53,7 +54,7 @@
 #   With an update: give RomFS and main as comma-separated lists (base game first, e.g. data/v0/RomFS,data/v327680/RomFS); the output is the union of both versions (see main())
 #   Unity type trees need Unity's common string table, which is taken from the first main
 # Pair table: (vertex key, pixel key) of every BNSH variation (every Unity program); dmsh_build uses it to give vertex shaders the outputs their pixel shaders read but they do not write (see dmsh_build.py vs_pad)
-import collections, concurrent.futures as cf, hashlib, json, os, re, struct, subprocess, sys, time, zlib
+import base64, collections, concurrent.futures as cf, hashlib, json, os, re, struct, subprocess, sys, time, zlib
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../tools'))
 from romfs import os, open, is_image
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../games')); import game as _game
@@ -2345,7 +2346,43 @@ def bnd2_shaders(d, label):
     for rid, typ, k, r in bnd2_resources(d, label):
         if b'\x91\x68\x86\x19' in r: found += glslc_shaders(r, f'{label}/{rid:016x}.{typ:x}.{k}', need=False)
     return found
-UE_TAG = {'SV': 'vs', 'SH': 'hs', 'SD': 'ds', 'SG': 'gs', 'SP': 'ps', 'SC': 'cs'}
+
+HEAPS_CACHE = 'shaders.cache.nx'
+
+def heaps_pak_files(f):
+    """The files of a Heaps PAK archive, open at +0 → [(path, offset in the archive, size)], or None when it is not one (other engines' .pak files share the magic's first bytes).
+    'PAK', a version byte, i32 header size (it counts these bytes, and the file data starts there), i32 data size; version 1 then holds a 64-character hash. The root entry follows, then 'DATA'.
+    An entry: u8 name length, name, u8 flags; a folder (bit 0) has i32 child count and its children, a file has its position in the data (f64 with bit 1, else i32), i32 size, i32 checksum"""
+    head = f.read(12)
+    if len(head) < 12 or head[:3] != b'PAK' or head[3] > 1: return None
+    size, dsize = struct.unpack_from('<ii', head, 4)
+    if not 12 < size <= 1 << 28 or dsize < 0: return None
+    h = f.read(size - 12); out = []
+    def entry(p, path):
+        n = h[p]; name = h[p + 1:p + 1 + n].decode('utf-8'); fl = h[p + 1 + n]; p += n + 2
+        path = f'{path}/{name}' if name else path
+        if fl & 1:
+            cnt, = struct.unpack_from('<i', h, p); p += 4
+            for _ in range(cnt): p = entry(p, path)
+            return p
+        pos = struct.unpack_from('<d', h, p)[0] if fl & 2 else struct.unpack_from('<i', h, p)[0]; p += 8 if fl & 2 else 4
+        n, _ = struct.unpack_from('<iI', h, p)
+        out.append((path, size + int(pos), n))
+        return p + 8
+    try: end = entry(64 if head[3] else 0, '')
+    except (IndexError, struct.error, UnicodeDecodeError, RecursionError): return None
+    return out if h[end:end + 4] == b'DATA' else None
+
+def heaps_shaders(d, label):
+    """Heaps' hxsl.CacheFile for the Switch (Dead Cells' shaders.cache.nx): a table of programs, then each stage's GLSL; a GLSL that was compiled ends with a comment holding the base64 of its
+    GLSLC output, //BIN=<base64>#. Dead Cells: 1,222 of its 1,271 sources have one, the others are vertex shaders the outputs already hold, since an output is the whole program"""
+    found = []
+    for m in re.finditer(rb'//BIN=([A-Za-z0-9+/]+={0,2})#', d):
+        found += glslc_shaders(base64.b64decode(m[1]), f'{label}@{m.start():#x}', need=False)
+    if not found: red(f'{label}: no GLSLC output in //BIN= comments')
+    return found
+
+UE_TAG ={'SV': 'vs', 'SH': 'hs', 'SD': 'ds', 'SG': 'gs', 'SP': 'ps', 'SC': 'cs'}
 def main_imports(img):   # the names main imports (its dynamic symbols)
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../tools')); import nso_syms
     return {s for s, defined, _ in nso_syms.dynsyms(img) if not defined}
@@ -2441,6 +2478,14 @@ def scan_file_in(args):
     if head[:4] == BND2:   # a Criterion Bundle 2 (Need for Speed: Hot Pursuit Remastered's SHADERS.BNDL): GLSLC outputs in its zlib resources (bnd2_shaders)
         found += bnd2_shaders(open(path, 'rb').read(), '/' + rel)
         return rel, uniq_keys(found), var_pairs(found), trees
+    if head[:3] == b'PAK':   # a Heaps PAK archive (Dead Cells): only its shader cache is read, not its 2 GB of other files (heaps_pak_files, heaps_shaders)
+        with open(path, 'rb') as f:
+            members = heaps_pak_files(f)
+            if members is not None:
+                for nm, off, n in members:
+                    if nm.endswith('/' + HEAPS_CACHE):
+                        f.seek(off); found += heaps_shaders(f.read(n), f'/{rel}{nm}')
+                return rel, uniq_keys(found), var_pairs(found), trees
     if head[:4] == SPKG or head[:4] == b'\0\0\1\0' and path.endswith('.gz'):   # Three Houses' loose shader packages and chunked zlib files (kt_shaders)
         kt_shaders(open(path, 'rb').read(), '/' + rel, found)
         return rel, uniq_keys(found), var_pairs(found), trees
