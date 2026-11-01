@@ -6,6 +6,18 @@ sys.path.insert(0,str(Path(__file__).parent))
 import one_click as c,prepare_game as p
 
 class DlcTests(unittest.TestCase):
+    def test_dlc_subdirectory_is_scanned_without_build_cache_directories(self):
+        with tempfile.TemporaryDirectory() as t:
+            root=Path(t);(root/'prod.keys').write_text('fixture')
+            for name in ('[01006F8002326000].nsp','[01006F8002326800][v2228224].nsp'):
+                (root/name).write_bytes(b'PFS0'+bytes(12))
+            dlc=root/'DLC'/'nested';dlc.mkdir(parents=True)
+            file=dlc/'[01006F800232712C].nsp';file.write_bytes(b'PFS0'+bytes(12))
+            cache=root/'unrelated-build';cache.mkdir();(cache/'[0100000000000000].nsp').write_bytes(b'PFS0'+bytes(12))
+            self.assertEqual(p.raw_plan(root,root)[3]['dlc'][0][2],file.resolve())
+            (dlc/'[01006F8002326800].nsp').write_bytes(b'PFS0'+bytes(12))
+            with self.assertRaisesRegex(ValueError,'DLC folder'):p.raw_plan(root,root)
+
     def test_added_changed_removed_dlc_invalidates_preparation(self):
         with tempfile.TemporaryDirectory() as t:
             root=Path(t)

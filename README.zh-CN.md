@@ -44,3 +44,5 @@ GitHub Actions 在 main 运行 **Build game-free iOS shell**，勾选 publish �
 ### 一键生成外置 DLC
 
 将自己的 DLC NSP 与本体、3.0.3 更新放在同一输入目录。一键工具调用官方提取器，并将 DLC 资源纳入着色器准备；两种 iOS 构建方式都会在 IPA 旁生成 `aoc` 文件夹。将整个 `aoc` 放入手机应用的 `Documents` 后重启；现有 `.data` 仍放在 `Documents/ACNHMobile`，无需因补充 DLC 重做。增加或移除 DLC 会使准备缓存失效，输出的 `aoc` 按完整集合替换，不合并旧文件；无 DLC 时输出空文件夹。Mac 应用构建会包含提取后的 DLC。游戏内容与 keys 不上传公开仓库。
+
+DLC 也可放在 `游戏目录/dlc/` 中，兼容 `DLC` 大写及其内部子目录；该目录只放 DLC，不放本体或更新，不扫描其他构建缓存目录。

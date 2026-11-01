@@ -29,7 +29,7 @@ def raw_plan(game,keys):
     game=Path(game).expanduser().resolve();keys=Path(keys).expanduser().resolve()
     if keys.is_dir():keys=keys/'prod.keys'
     if not keys.is_file():raise ValueError('请选择自己的 prod.keys 文件。')
-    u=load_pipeline();app,family=u.scan_nsps(game)
+    u=load_pipeline();app,family=u.scan_nsps(game,dlc_subdirs=True)
     if app!=int(TITLE,16):raise ValueError('所选目录不是动森，请选择仅含动森的目录。')
     if len(family['updates'])!=1:raise ValueError('目录中请只保留一个 3.0.3 更新 NSP，避免选错版本。')
     version,update=family['updates'][0]
@@ -40,7 +40,7 @@ def cache_key(family):
     # Fingerprint input contents, never key values. A new input set gets a separate cache.
     from build_shell import source_id
     h=hashlib.sha256(source_id(ROOT).encode())
-    for p in [family['base'],family['updates'][0][1],*[p for _,_,p in sorted(family['dlc'])]]:
+    for p in [family['base'],family['updates'][0][1],*[p for _,_,p in sorted(family.get('dlc',[]))]]:
         h.update(p.name.encode());h.update(str(p.stat().st_size).encode());h.update(str(p.stat().st_mtime_ns).encode())
     for base in ('tools','dm/tools','dm/gfx/tools','dm/games/'+TITLE,'dm/third_party/ryujinx'):
         for p in sorted((ROOT/base).rglob('*')):
