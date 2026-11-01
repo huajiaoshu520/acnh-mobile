@@ -887,9 +887,10 @@ def jump_adr_offsets(insl, j):
         idx, cmp = {'w' + ix}, None   # the index and the registers copied into it (main+0x596d30: cmp w15,#8; b.hi; mov w16,w15; ...; ldrsw x0,[x17,x16,lsl #2])
         for p in reversed(ctx[:ctx.index(ld)]):   # walk back from the load to the bounds check
             m = re.fullmatch(r'(w\d+), (w\d+)', p.op_str) if p.mnemonic == 'mov' else None
-            if m and m.group(1) in idx: idx.add(m.group(2)); continue
-            m = re.fullmatch(r'(w\d+), #(0x[0-9a-f]+|\d+)', p.op_str) if p.mnemonic == 'cmp' else None
-            if m and m.group(1) in idx: cmp = p; break
+            if m and m.group(1) in idx: idx.remove(m.group(1)); idx.add(m.group(2)); continue
+            # A check of the full xN index bounds the same table (DRAGON QUEST I & II main+0x30ee50c: cmp x9,#4).
+            m = re.fullmatch(r'([wx]\d+), #(0x[0-9a-f]+|\d+)', p.op_str) if p.mnemonic == 'cmp' else None
+            if m and 'w' + m.group(1)[1:] in idx: cmp = p; break
             if any('w' + p.reg_name(r)[1:] in idx for r in p.regs_access()[1]): return None   # the index changes after the check
         if cmp is None: return None
         n, at = int(cmp.op_str.split('#')[1], 0) + 1, wa.operands[1].imm

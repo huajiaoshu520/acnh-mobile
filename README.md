@@ -1,11 +1,11 @@
 # ACNH Mobile
 
-**0.3.86 · build 95 — official Metal 4 edition, iOS 26+.**
+**0.3.87 · build 96 — official Metal 4 edition, iOS 26+.**
 
 Optional iCloud Drive save sharing is available in the iPhone and Mac launchers; choose the same folder on both devices. Replaced saves are backed up locally.
 
-Experimental same-Wi-Fi local networking is included as an ACNH-only patch. LiveContainer + SideStore users must update to the LAN-enabled host attached to this release and allow local network access. [Release notes](docs/RELEASE-v0.3.86.zh-CN.md).
-A native compatibility runtime for Animal Crossing: New Horizons 3.0.3. The runtime and shader translation sources are based on [NXNative](https://github.com/seedds/nxnative) commit `5474c6f34789a41770868564fbf4e9e32fc57584`.
+Experimental same-Wi-Fi local networking is included as an ACNH-only patch. LiveContainer + SideStore users must update to the LAN-enabled host attached to this release and allow local network access. [Release notes](docs/RELEASE-v0.3.87.zh-CN.md).
+A native compatibility runtime for Animal Crossing: New Horizons 3.0.3. The runtime and shader translation sources are based on [NXNative](https://github.com/seedds/nxnative) commit `68e8dc23587ccae209e0dbcaee34f0677e81aac5`.
 
 This edition uses the official Metal 4 replay path and matching shader chain. It retains ACNH's icon touch controls, tool wheel, physical controllers, R/field-triggered Chinese text input, direct external `.data` access, transactional saves, amiibo file import, Photos export and bounded haptics. Custom touch layouts can be edited from startup settings; there is no added in-game typing toolbar.
 
@@ -37,7 +37,7 @@ IPA and game data remain separate: the IPA contains the runtime and converted sh
 
 The resource pack remains outside the IPA. Existing 3.0.3 `ACNH-index.data` and numbered `.data` parts remain compatible and are read directly without extraction. Place the complete set in `Documents/ACNHMobile`, or choose its folder in the app. First import verifies file hashes; later starts reuse the verified index identity.
 
-Build 95 adds Mac fullscreen startup readiness, external DLC discovery on iOS, movie audio recovery after seeks, audio diagnostics outside the real-time callback, guarded jump-table recognition and benchmark pipeline archive selection.
+Build 96 synchronizes texture image-write preservation, layered clears, pipeline warmup concurrency, audio events, filesystem/save error handling, Mac display/gamepad fixes, package scanning and the Xcode 27.2 shader toolchain. Existing compatible external data remains reusable; phone behavior requires device verification.
 
 ## Validation
 

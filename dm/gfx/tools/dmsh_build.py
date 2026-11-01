@@ -205,6 +205,8 @@ def cache_lookup(key, digest, rule_fp, code_fp):
         PRE_STATS['miss'] += 1; PRE_STATS[reason] += 1; return False, reason
 
 def publish_cache(key, digest, rule_fp, code_fp):
+    # Paired pixel MSL is an input to vs_pad; a diagnostic build without it must not cache an incomplete vertex shader under a complete dependency key.
+    if any(not os.path.isfile(os.path.join(out, ps + '_b.metal')) for ps in PAIRS.get(key, ())): return
     found = cache_outputs(key, digest)
     if not found: return
     root, files = found
@@ -805,6 +807,10 @@ def load_pairs(game, package):
 
 PAIRS = load_pairs(GAME, dm_dir)
 
+def build_keys(want, locations, pairs):
+    """A partial vertex build needs its available paired pixel shaders before padding; a full build keeps every shader."""
+    return sorted(set(want) | {ps for vs in want for ps in pairs.get(vs, ()) if ps in locations}) if want else sorted(locations)
+
 def vs_pad(key, src):
     """Give a vertex shader the outputs its paired pixel shaders read but it does not write, with the value (0,0,0,1).
     Maxwell attributes are untyped 32-bit slots, and a pixel shader reading a location the vertex shader did not write only gets a default; Ryujinx also fills them with (0,0,0,1) when it links stages. Here every shader is translated
@@ -1173,7 +1179,8 @@ def finish(key, w, j, c1):
     fetch_finish(key, src, refl)
     return 'ok', '', refl
 
-keys = sorted(want) if want else sorted(loc)
+keys = build_keys(want, loc, PAIRS)
+if want: want = set(keys)   # dependency outputs are cleaned too, so a failed pixel build cannot leave old MSL for padding
 NJ = int(os.environ.get('J', '8'))
 os.makedirs(out, exist_ok=True)
 # A full build starts from no shader outputs, a partial one from none of the keys it builds, so what a run leaves is what it built: every output is restored from the cache anyway.

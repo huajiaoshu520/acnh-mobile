@@ -23,7 +23,7 @@ void dm_gamepad_reset(void);
 void dm_gamepad_active(void);
 void front_ios_boot(void);
 int front_ios_boot_ok(void);
-const char *front_ios_device_message(void);
+const char *front_ios_device_check(void);
 bool dm_show_launcher(void *view_controller, void (*done)(void));
 
 static CAMetalLayer *g_layer,*g_minimap_layer;
@@ -111,6 +111,12 @@ static BOOL tv_active(void);
 static DmRootVC *g_root;
 static void launcher_done(void) { [g_root startGame]; }
 @implementation DmRootVC
+- (void)showHint:(NSString *)text {   // why the game cannot start, centered over the black screen
+    UILabel *lb = [[UILabel alloc] initWithFrame:CGRectInset(self.view.bounds, 40, 40)];
+    lb.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    lb.numberOfLines = 0; lb.textAlignment = NSTextAlignmentCenter; lb.textColor = UIColor.whiteColor;
+    lb.text = text; [self.view addSubview:lb];
+}
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.view.backgroundColor = UIColor.blackColor;
@@ -131,7 +137,9 @@ static void launcher_done(void) { [g_root startGame]; }
 - (void)startGame {
     dm_cloud_saves_env();
     if(self.game || !front_ios_boot_ok())return;
-    if(getenv("DM_METAL_HUD") && atoi(getenv("DM_METAL_HUD")))setenv("MTL_HUD_ENABLED","1",0);
+    front_hud_env();
+    const char *device=front_ios_device_check();
+    if(device){self.loadLabel.text=@(device);return;}
     [self.loadLabel removeFromSuperview];
     [self setupGame];
     [self.view setNeedsLayout];[self.view layoutIfNeeded];
@@ -210,8 +218,6 @@ static void launcher_done(void) { [g_root startGame]; }
 - (void)viewDidAppear:(BOOL)a {
     [super viewDidAppear:a];UIApplication.sharedApplication.idleTimerDisabled=YES;
     if(self.preparing || self.game)return;self.preparing=YES;
-    const char *device=front_ios_device_message();
-    if(device){self.loadLabel.text=@(device);return;} // before resource import, launcher or guest execution
     // Make the shared Documents directory nonempty even before game resources
     // are imported (and in a game-free shell), so Files has a visible target.
     NSString *doc=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES).firstObject;

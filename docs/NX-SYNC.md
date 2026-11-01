@@ -1,6 +1,6 @@
 # NX generic synchronization / 通用同步
 
-Pinned official source: `5474c6f34789a41770868564fbf4e9e32fc57584`.
+Pinned official source: `68e8dc23587ccae209e0dbcaee34f0677e81aac5`.
 
 通用运行核心、图形层、着色器翻译、影片解码、震动后端及诊断工具以此官方版本为基线。动森控制器与编辑器、画面适配、LAN、系统输入、相册、外置数据、云存档文件夹入口及设备提示保留为项目适配。Mac/iOS 使用同一通用核心。
 
@@ -18,3 +18,5 @@ The generic runtime, graphics and shader tools, movie decoding, rumble backends 
 The IPA and game data stay separate. Compatible existing external `.data` packages are reused; game resources and keys are not distributed with the public IPA.
 
 Build 95 / 构建95：同步官方全屏就绪等待、iOS DLC查找与替换传输、Vorbis Flush恢复、音频回调诊断迁移、零扩展跳转表识别、轮询测试和基准管线归档传递。未纳入其他游戏profile说明。
+
+Build 96 / 构建96：采用 Xcode 27.2 与对应 Metal 着色器链；同步纹理 image 写入保护、数组/立方体多层清屏、并发管线预热、等待线程临时对象释放、音频命令验证和独立事件句柄、云存档错误后的流关闭、目录分配/递归删除/APFS 错误提示、呈现帧率及可变刷新判断、Mac HID 手柄回退/指针隐藏/显示唤醒/HUD、合并 NSP/XCI 内容识别与构建空间检查。保留 DLC 子目录与外置交付；私人 .data 准备明确提取真实目录。设备能力检查在 Play 后、创建游戏 Metal 视图前执行，保留系统语言提示。其他游戏 profile 与资源不纳入。

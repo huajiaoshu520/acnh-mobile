@@ -17,7 +17,7 @@ jobs:
   shell:
     runs-on: xcode-27
     env:
-      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
     timeout-minutes: 45
     permissions:
       contents: write
@@ -36,6 +36,8 @@ jobs:
           sdk=subprocess.check_output(["xcrun","--sdk","iphoneos","--show-sdk-version"],text=True).strip()
           assert tuple(map(int,sdk.split(".")[:2])) >= (27,1), "Duo testing release requires iOS 27.1 SDK"
           PY
+      - name: Install selected Xcode Metal toolchain
+        run: xcodebuild -downloadComponent MetalToolchain
       - name: Validate version and publication target
         env:
           SHOULD_PUBLISH: ${{ github.ref_type == 'tag' || inputs.publish }}

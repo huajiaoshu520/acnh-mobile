@@ -15,6 +15,22 @@ class PrepareTests(unittest.TestCase):
             self.assertEqual(p.raw_plan(root,root)[3]['base'],base.resolve())
             update.rename(root/'[01006F8002326800][v1].nsp')
             with self.assertRaisesRegex(ValueError,'3.0.3'):p.raw_plan(root,keys)
+    def test_data_preparation_extracts_real_romfs_and_checks_completeness(self):
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as t:
+            root=Path(t);u=Mock();family={'base':root/'base.nsp','updates':[(2228224,root/'update.nsp')]}
+            def extract(command,log):
+                self.assertNotIn('--romfs-image',command)
+                self.assertEqual(command[-2:],['--app',p.TITLE])
+                stage=command[4];(stage/'ExeFS').mkdir(parents=True);(stage/'ExeFS/main').write_bytes(b'fixture')
+                (stage/'RomFS/Shader').mkdir(parents=True);(stage/'RomFS/Shader/marker').write_bytes(b'fixture')
+            def swap(stage,dest):stage.rename(dest)
+            u.run.side_effect=extract;u.swap_in.side_effect=swap
+            dest=p.extract_data(u,'nx',root/'prod.keys',root,family,root,{'romfs_marker':'Shader/marker'})
+            self.assertTrue((dest/'RomFS/Shader/marker').is_file())
+            self.assertEqual(p.extract_data(u,'nx',root/'prod.keys',root,family,root,{'romfs_marker':'Shader/marker'}),dest)
+            self.assertEqual(u.run.call_count,1)
+
     def test_missing_keys_and_wrong_title(self):
         with tempfile.TemporaryDirectory() as t:
             root=Path(t)

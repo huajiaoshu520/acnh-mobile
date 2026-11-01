@@ -23,7 +23,7 @@ void front_ios_focus_event(int ev);
 
 static char *g_argv[4]; static int g_argc;
 
-const char *front_ios_device_message(void) {
+const char *front_ios_device_check(void) {
     static NSString *message; static dispatch_once_t once;
     dispatch_once(&once, ^{
         id<MTLDevice> gpu=MTLCreateSystemDefaultDevice();
@@ -151,7 +151,6 @@ static int boot_env(void) {
     NSString *lang = [NSBundle.mainBundle objectForInfoDictionaryKey:@"DMLanguage"];
     if (!getenv("DM_LANG") && [lang isKindOfClass:NSString.class] && lang.length) setenv("DM_LANG", lang.UTF8String, 0);
     fprintf(stderr, "boot: game language %s\n", getenv("DM_LANG") ?: "en-US");
-    if(front_ios_device_message())return 0; // refuse before early host loading
     NSString *romfs = romfs_locate();
     if (!romfs) { fprintf(stderr, "boot: game files not found (<App>/romfs or Documents/romfs)\n"); return 0; }
     fprintf(stderr, "boot: game files %s\n", romfs.fileSystemRepresentation);

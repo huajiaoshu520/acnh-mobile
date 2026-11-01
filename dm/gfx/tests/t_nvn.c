@@ -77,6 +77,19 @@ int main(void) {
       EXPECT("the state page's movie flag is the host's copy, not read for the cap",60,fps_present_cap());
       dm_fps_state=NULL;unsetenv("DM_FPS_TARGET");g_present_cap=-1;nvn_present_config(0,0);
     }
+    // No frame step page and no engine limiter the host writes (a main the profile's
+    // stubs or limiter rows do not know): nothing makes the game follow the cap, so
+    // presentation keeps the game's own interval (Tears of the Kingdom 1.4.2 at 2x).
+    { win_t w={.interval=2};nvn_present_config(60,0);dm_fps_state=NULL;g_engine_stub=0;
+      setenv("DM_FPS_TARGET","60",1);g_present_cap=-1;
+      EXPECT("no limiter: the 60 cap is not applied",0,fps_present_cap());
+      EXPECT("no limiter: the game's present interval stays",2,present_itv(&w));
+      setenv("DM_FPS_TARGET","30",1);g_present_cap=-1;w.interval=1;
+      EXPECT("no limiter: the 30 cap is not applied",1,present_itv(&w));
+      _Alignas(8) uint8_t state[64]={0};float cap=60;memcpy(state,&cap,4);dm_fps_state=state;
+      EXPECT("a frame step page needs no limiter",60,fps_present_cap());
+      dm_fps_state=NULL;unsetenv("DM_FPS_TARGET");g_present_cap=-1;g_engine_stub=1;nvn_present_config(0,0);
+    }
     crash_install();   // the same SIGSEGV / SIGBUS handling as production (the page-fault hook is dispatched from within it)
     // 1. Bootstrap address lookup: bootstrap gets GetProcAddress, then uses it to get all the names
     PFNNVNBOOTSTRAPLOADERPROC boot = (PFNNVNBOOTSTRAPLOADERPROC)h_nvnBootstrapLoader;
@@ -313,10 +326,21 @@ int main(void) {
         static uint8_t m[4096] __attribute__((aligned(4096))); NVNmemoryPoolBuilder mb; NVNmemoryPool mp; NVNcommandBuffer c2;
         P(nvnMemoryPoolBuilderSetDefaults)(&mb); P(nvnMemoryPoolBuilderSetStorage)(&mb, m, sizeof m); P(nvnMemoryPoolInitialize)(&mp, &mb);
         P(nvnCommandBufferInitialize)(&c2, &dev);
+        // Control memory is unused by the host's command stream: a supplied
+        // block has its full size available, even after recording commands.
+        static uint8_t ctl[512];
+        EXPECT("control free before AddControlMemory", 0, P(nvnCommandBufferGetControlMemoryFree)(&c2));
+        P(nvnCommandBufferAddControlMemory)(&c2, ctl, sizeof ctl);
+        EXPECT("control block size after grant", sizeof ctl, P(nvnCommandBufferGetControlMemorySize)(&c2));
+        EXPECT("control block free after grant", sizeof ctl, P(nvnCommandBufferGetControlMemoryFree)(&c2));
         P(nvnCommandBufferAddCommandMemory)(&c2, &mp, 0, sizeof m); P(nvnCommandBufferBeginRecording)(&c2);
         P(nvnCommandBufferDrawElementsBaseVertex)(&c2, NVN_DRAW_PRIMITIVE_TRIANGLES, NVN_INDEX_TYPE_UNSIGNED_SHORT, 36, 0x10000, 5);
         NVNcommandHandle hd = P(nvnCommandBufferEndRecording)(&c2);
         EXPECT("plain indexed draw recording: 0x28 + END", 0x30, P(nvnCommandBufferGetCommandMemoryUsed)(&c2));
+        EXPECT("recording uses no control memory", 0, P(nvnCommandBufferGetControlMemoryUsed)(&c2));
+        EXPECT("control capacity remains available", sizeof ctl, P(nvnCommandBufferGetControlMemoryFree)(&c2));
+        P(nvnCommandBufferAddControlMemory)(&c2, ctl, 128);
+        EXPECT("new control block replaces capacity", 128, P(nvnCommandBufferGetControlMemoryFree)(&c2));
         op_hdr rh; memcpy(&rh, m, sizeof rh); p_draw_idx dt; const p_draw_idx *d = draw_idx_rec(m + 8, rh.size, &dt);
         EXPECT("its handle is the draw record", 1, (const uint8_t *)hd == m && rh.op == OP_DRAW_IDX);
         EXPECT("draw read back: count, base vertex, no indirect address", 1, d->count == 36 && d->base_vertex == 5 && d->ibuf == 0x10000 && !d->ind && !d->mdi_cnt);
@@ -334,10 +358,30 @@ int main(void) {
         size_t at = P(nvnCommandBufferGetCommandMemoryUsed)(&c2);
         P(nvnCommandBufferBindTexture)(&c2, NVN_SHADER_STAGE_FRAGMENT, 3, (NVNtextureHandle)(0x1ff00000u | 1234));
         P(nvnCommandBufferEndRecording)(&c2);
-        EXPECT("single texture bind recording: 0x20 + END", 0x28, P(nvnCommandBufferGetCommandMemoryUsed)(&c2));
+        EXPECT("single texture bind recording, first pools: 0x18 + END", 0x20, P(nvnCommandBufferGetCommandMemoryUsed)(&c2));
         uint32_t patched = 0x1ff00000u | 1235; memcpy(m + at + 0x10, &patched, 4);
         memcpy(&rh, m, sizeof rh); p_bind_handles bt; const p_bind_handles *bh = bind_rec(rh.op, m + 8, &bt);
         EXPECT("the bind reads the handle patched at its start + 0x10: slot 3, texture 1235, sampler 511", 1, rh.op == OP_BIND_TEX1 && bh->n == 1 && bh->first == 3 && bh->stage == NVN_SHADER_STAGE_FRAGMENT && bh->h[0] == patched);
+        // With another pool bound the record keeps the pool bases after the handle, and the read adds them
+        P(nvnCommandBufferAddCommandMemory)(&c2, &mp, 0, sizeof m); P(nvnCommandBufferBeginRecording)(&c2);
+        ((cmd_t *)&c2)->tex_base = 7; ((cmd_t *)&c2)->samp_base = 3;
+        P(nvnCommandBufferBindTexture)(&c2, NVN_SHADER_STAGE_VERTEX, 2, (NVNtextureHandle)(5u << 20 | 1234));
+        P(nvnCommandBufferEndRecording)(&c2); ((cmd_t *)&c2)->tex_base = ((cmd_t *)&c2)->samp_base = 0;
+        EXPECT("single texture bind recording, other pools: 0x20 + END", 0x28, P(nvnCommandBufferGetCommandMemoryUsed)(&c2));
+        memcpy(&rh, m, sizeof rh); bh = bind_rec(rh.op, m + 8, &bt);
+        EXPECT("the bind adds the pool bases: stage, slot 2, texture 1241, sampler 8", 1, bh->stage == NVN_SHADER_STAGE_VERTEX && bh->first == 2 && bh->h[0] == (8u << 20 | 1241));
+        // State binds carry only the state object's bytes: 16 bytes for a 4-byte state, 24 for an 8-byte one or the multisample state
+        P(nvnCommandBufferAddCommandMemory)(&c2, &mp, 0, sizeof m); P(nvnCommandBufferBeginRecording)(&c2);
+        NVNpolygonState ps; P(nvnPolygonStateSetDefaults)(&ps); P(nvnPolygonStateSetCullFace)(&ps, NVN_FACE_BACK); P(nvnCommandBufferBindPolygonState)(&c2, &ps);
+        NVNdepthStencilState dss; P(nvnDepthStencilStateSetDefaults)(&dss); P(nvnDepthStencilStateSetDepthFunc)(&dss, NVN_DEPTH_FUNC_GREATER); P(nvnCommandBufferBindDepthStencilState)(&c2, &dss);
+        NVNmultisampleState mss; P(nvnMultisampleStateSetDefaults)(&mss); P(nvnMultisampleStateSetSamples)(&mss, 4); P(nvnCommandBufferBindMultisampleState)(&c2, &mss);
+        P(nvnCommandBufferEndRecording)(&c2);
+        EXPECT("polygon, depth-stencil and multisample binds: 16 + 24 + 24 + END", 72, P(nvnCommandBufferGetCommandMemoryUsed)(&c2));
+        {   op_hdr h1, h2, h3; memcpy(&h1, m, 8); memcpy(&h2, m + 16, 8); memcpy(&h3, m + 40, 8);
+            const p_bind_state *s1 = (const p_bind_state *)(m + 8), *s2 = (const p_bind_state *)(m + 24), *s3 = (const p_bind_state *)(m + 48);
+            poly_st pr; ds_st dr; ms_st mr; memcpy(&pr, s1->bytes, sizeof pr); memcpy(&dr, s2->bytes, sizeof dr); memcpy(&mr, s3->bytes, sizeof mr);
+            EXPECT("the state records read back: kinds, cull, depth function, samples", 1, h1.op == OP_BIND_STATE && h1.size == 16 && s1->kind == 4 && pr.cull == NVN_FACE_BACK
+                   && h2.op == OP_BIND_STATE && h2.size == 24 && s2->kind == 5 && dr.df == NVN_DEPTH_FUNC_GREATER && h3.op == OP_BIND_STATE && h3.size == 24 && s3->kind == 3 && mr.samples == 4); }
         P(nvnCommandBufferFinalize)(&c2); P(nvnMemoryPoolFinalize)(&mp);
     }
     // Uniform bindings are measured into resource budgets too. A bounded binding needs

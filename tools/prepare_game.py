@@ -29,7 +29,9 @@ def raw_plan(game,keys):
     game=Path(game).expanduser().resolve();keys=Path(keys).expanduser().resolve()
     if keys.is_dir():keys=keys/'prod.keys'
     if not keys.is_file():raise ValueError('请选择自己的 prod.keys 文件。')
-    u=load_pipeline();app,family=u.scan_nsps(game,dlc_subdirs=True)
+    u=load_pipeline()
+    with u.package_title_reader(ROOT,keys,dict(os.environ)) as reader:
+        app,family=u.scan_nsps(game,reader,reader.contents,dlc_subdirs=True)
     if app!=int(TITLE,16):raise ValueError('所选目录不是动森，请选择仅含动森的目录。')
     if len(family['updates'])!=1:raise ValueError('目录中请只保留一个 3.0.3 更新 NSP，避免选错版本。')
     version,update=family['updates'][0]
@@ -68,6 +70,19 @@ def translator_preflight(xlate,env,log):
         print(message,flush=True)
         input('处理完成后按回车重试，或按 Ctrl+C 取消：')
 
+def extract_data(u,nx,keys,cache,family,logs,g):
+    """The .data packer needs a real RomFS directory; the official generic extractor defaults to an image."""
+    dest=cache/'extract/3.0.3'
+    if (dest/'ExeFS/main').is_file() and (dest/'RomFS'/g.get('romfs_marker')).is_file():return dest
+    stage=dest.with_name('3.0.3.partial')
+    if stage.exists():shutil.rmtree(stage)
+    u.run([nx,keys,family['base'],family['updates'][0][1],stage,'--app',TITLE],logs/'extract_3.0.3.log')
+    if not (stage/'ExeFS/main').is_file() or not (stage/'RomFS'/g.get('romfs_marker')).is_file():
+        raise ValueError('提取未产生完整的 ExeFS 与 RomFS 目录。')
+    u.swap_in(stage,dest)
+    return dest
+
+
 def prepare(game,keys,work,run,log,platform='ios'):
     u,game,keys,family=raw_plan(game,keys)
     cache=Path(work)/'prepared'/cache_key(family);cache.mkdir(parents=True,exist_ok=True)
@@ -102,7 +117,7 @@ def prepare(game,keys,work,run,log,platform='ios'):
     u.PROG.stage('build extraction tool')
     nx=u.build_nx_extract(repo,cache,logs,env);u.PROG.end()
     family=u.decompress_nsz(game,int(TITLE,16),family,keys,env,work=cache)
-    ex=u.extract(nx,keys,cache/'extract','3.0.3',family['base'],family['updates'][0][1],None,logs,g)
+    ex=extract_data(u,nx,keys,cache,family,logs,g)
     bad=u.build_mismatch(ex,'v2228224',g)
     if bad:raise ValueError('游戏版本不匹配：'+', '.join(bad))
     aoc=u.extract_aoc(nx,keys,repo,cache,int(TITLE,16),family,logs)
