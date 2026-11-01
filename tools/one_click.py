@@ -68,7 +68,10 @@ def inputs(settings):
         from fontTools.ttLib import TTFont
     except ImportError:raise ValueError('缺少 FontTools，请使用已安装 requirements.txt 的 Python 环境。')
     with TTFont(font):pass
-    return dict(patched=patched,romfs=romfs,shaders=shaders,font=font,chain=chain,shader_libraries=len(libs),build_root=root)
+    result=dict(patched=patched,romfs=romfs,shaders=shaders,font=font,chain=chain,shader_libraries=len(libs),build_root=root)
+    if settings.get('aoc'):
+        result['aoc']=choose([settings['aoc']],'DLC 目录')
+    return result
 
 def inspect_ipa(path,version,kind):
     with zipfile.ZipFile(path) as z:
@@ -144,7 +147,7 @@ def data_matches_source(folder,romfs,count):
     return True
 
 def trash_file(path):
-    # Only generated IPA files selected by this tool are moved; no data/save removal.
+    # Only reviewed generated outputs are moved; original game inputs and saves stay untouched.
     device=path.stat().st_dev;home=Path.home();volume=None
     for parent in path.parents:
         if parent.parent==Path('/Volumes'):volume=parent;break
@@ -200,6 +203,38 @@ def publish_data(source,target):
     # Source removal waits until the complete destination has been validated and published.
     try:shutil.rmtree(source)
     except OSError as error:print('数据已输出，原临时副本未清理：'+str(error),flush=True)
+
+def publish_aoc(source,output):
+    """Publish the complete extracted DLC set, never merge stale DLC into it."""
+    source,output=Path(source).resolve(),Path(output).resolve()
+    if not source.is_dir():raise ValueError('DLC 来源目录不存在：'+str(source))
+    target=output/'aoc'
+    if source==target:raise ValueError('DLC 来源不能与输出目录相同。')
+    def inventory(root):
+        result={}
+        for p in root.rglob('*'):
+            if p.is_symlink():raise ValueError('DLC 不接受符号链接：'+str(p))
+            if p.is_file():result[p.relative_to(root).as_posix()]=sha(p)
+        return result
+    expected=inventory(source)
+    for p in source.iterdir():
+        if not ((p.is_file() and re.fullmatch(r'[0-9]+\.img',p.name)) or (p.is_dir() and p.name.isdecimal())):
+            raise ValueError('DLC 目录只能包含索引 .img 或索引目录：'+p.name)
+    if target.is_symlink():raise ValueError('DLC 输出不能是符号链接。')
+    if target.is_dir():
+        for p in target.iterdir():
+            if not re.fullmatch(r'[0-9]+(?:\.img)?',p.name):raise ValueError('现有 aoc 含未知文件，未覆盖：'+p.name)
+        if inventory(target)==expected:return target
+    stage=output/('.aoc-copy-'+uuid.uuid4().hex)
+    try:
+        shutil.copytree(source,stage)
+        if inventory(stage)!=expected or inventory(source)!=expected:raise ValueError('DLC 复制校验失败，原输出保留。')
+        if target.exists():trash_file(target)
+        stage.rename(target)
+    finally:
+        if stage.exists():shutil.rmtree(stage)
+    return target
+
 
 def publish_ipa(source,target,digest):
     """Copy into destination volume, verify, then replace the visible IPA atomically."""
@@ -291,6 +326,8 @@ def main():
                 dest=output/'ACNH Mobile.app'
                 command=[sys.executable,data['build_root']/'tools/public_setup.py','mac-app']
                 for key in ('patched','romfs','shaders','font'):command+=['--'+key,data[key]]
+
+                if data.get('aoc'):command+=['--aoc',data['aoc']]
                 command+=['--work',job/'mac-work','--output',dest];run(command,log)
                 inspect_mac_app(dest,version)
                 cleanup_success(work,job,output,data,raw,(game,keys) if raw else ())
@@ -300,6 +337,8 @@ def main():
             if a.platform=='mac':
                 command=[sys.executable,data['build_root']/'tools/public_setup.py','mac']
                 for key in ('patched','romfs','shaders','font'):command+=['--'+key,data[key]]
+
+                if data.get('aoc'):command+=['--aoc',data['aoc']]
                 command+=['--work',job/'mac-work'];run(command,log)
                 print('Mac 开发构建完成：'+str(job/'mac-work/run-mac.command'),flush=True);return
             made=job/'complete.ipa';command=[sys.executable,data['build_root']/'tools/public_setup.py','build']
@@ -326,6 +365,9 @@ def main():
                 else:
                     print('复用已有数据包，校验中…',flush=True);verify_data(target)
                 print('数据包：'+str(target),flush=True)
+            if data.get('aoc'):
+                dlc=publish_aoc(data['aoc'],output)
+                print('DLC：'+str(dlc)+'（将整个 aoc 文件夹放入手机 Documents，然后重启游戏）',flush=True)
             name='ACNHMobile-'+'v'+version['version']+'-build'+str(version['build'])+'-unsigned.ipa'
             dest=output/name
             # Keep a previously successful output recoverable until a verified replacement is ready.

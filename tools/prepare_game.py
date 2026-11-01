@@ -40,7 +40,7 @@ def cache_key(family):
     # Fingerprint input contents, never key values. A new input set gets a separate cache.
     from build_shell import source_id
     h=hashlib.sha256(source_id(ROOT).encode())
-    for p in [family['base'],family['updates'][0][1]]:
+    for p in [family['base'],family['updates'][0][1],*[p for _,_,p in sorted(family['dlc'])]]:
         h.update(p.name.encode());h.update(str(p.stat().st_size).encode());h.update(str(p.stat().st_mtime_ns).encode())
     for base in ('tools','dm/tools','dm/gfx/tools','dm/games/'+TITLE,'dm/third_party/ryujinx'):
         for p in sorted((ROOT/base).rglob('*')):
@@ -105,14 +105,18 @@ def prepare(game,keys,work,run,log,platform='ios'):
     ex=u.extract(nx,keys,cache/'extract','3.0.3',family['base'],family['updates'][0][1],None,logs,g)
     bad=u.build_mismatch(ex,'v2228224',g)
     if bad:raise ValueError('游戏版本不匹配：'+', '.join(bad))
+    aoc=u.extract_aoc(nx,keys,repo,cache,int(TITLE,16),family,logs)
+    if aoc is None:
+        aoc=cache/'aoc';aoc.mkdir(exist_ok=True)
+    dlc_roms=sorted(p for p in aoc.iterdir() if p.is_dir() or p.suffix=='.img')
     patched=cache/'patched';u.rewrite(sys.executable,repo,ex/'ExeFS',patched,env,logs,g)
     u.run([sys.executable,repo/'dm/gfx/tools/tool_lock.py','--update-lock'],logs/'tool-lock.log',env=env)
     u.chain_header(sys.executable,repo,env,logs)
     sh=cache/'shader'
-    key=u.split_shaders(sys.executable,repo,[ex/'RomFS'],[ex/'ExeFS/main'],sh/'pkg',env,logs,g)
+    key=u.split_shaders(sys.executable,repo,[ex/'RomFS'],[ex/'ExeFS/main'],sh/'pkg',env,logs,g,dlc_roms=dlc_roms)
     ios=u.build_shaders(sys.executable,repo,sh,xlate,env,logs,g,pkg_key=key,mac=platform=='mac')
     chain=u.chain_of(repo)   # build_shaders also generates/validates both local tables, even on reuse
-    data=dict(patched=patched,romfs=ex/'RomFS',shaders=ios,build_root=repo,chain=chain)
+    data=dict(patched=patched,romfs=ex/'RomFS',shaders=ios,build_root=repo,chain=chain,aoc=aoc)
     # Written only after every stage succeeds; later IPA construction validates the cache again.
     manifest.write_text(json.dumps({k:str(v) for k,v in data.items()}))
     return data

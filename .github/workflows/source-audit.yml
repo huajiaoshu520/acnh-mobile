@@ -12,6 +12,7 @@ jobs:
       - run: python tools/public_setup.py --help
       - run: python tools/test_shell.py
       - run: python tools/test_one_click.py
+      - run: python tools/test_one_click_dlc.py
       - run: python tools/test_prepare_game.py
       - run: python tools/test_launcher.py
       - run: python tools/test_own_compilers.py

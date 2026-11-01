@@ -11,10 +11,12 @@ b.add_argument('--mac-shaders',type=Path,help='Matching Mac shader output parent
 b.add_argument('--shell',type=Path,help='Optional matching game-free IPA or shell ZIP from Releases')
 m=cmd.add_parser('mac',help='Build the Mac development host without an IPA')
 for key in ['patched','romfs','shaders','font','work']:m.add_argument('--'+key,type=Path,required=True)
+m.add_argument('--aoc',type=Path)
 m.add_argument('--run',action='store_true',help='Open the game after building')
 ma=cmd.add_parser('mac-app',help='Build a self-contained Apple silicon Mac .app')
 for key in ['patched','romfs','shaders','game','keys']:ma.add_argument('--'+key,type=Path)
 for key in ['font','work','output']:ma.add_argument('--'+key,type=Path,required=True)
+ma.add_argument('--aoc',type=Path)
 ma.add_argument('--sign',default='-',help='codesign identity; default: local ad-hoc signature')
 ma.add_argument('--env-file',type=Path,help='Optional runtime settings to include in the app')
 d=cmd.add_parser('data');d.add_argument('--romfs',type=Path,required=True);d.add_argument('--output',type=Path,required=True)
@@ -27,7 +29,7 @@ if a.cmd=='data':
  subprocess.run([sys.executable,str(ROOT/'tools/pack_data.py'),str(a.romfs.resolve()),str(a.output.resolve())],check=True);sys.exit(0)
 if a.cmd=='mac':
  from mac_build import build
- build(ROOT,a.patched,a.romfs,a.shaders,a.font,a.work,a.run);sys.exit(0)
+ build(ROOT,a.patched,a.romfs,a.shaders,a.font,a.work,a.run,aoc=a.aoc);sys.exit(0)
 if a.cmd=='mac-app':
  from mac_build import pack
  if a.game or a.keys:
@@ -36,10 +38,10 @@ if a.cmd=='mac-app':
   from build_dependencies import ensure
   ensure(raw=True,mac=True)
   prepared=prepare(a.game,a.keys,a.work.resolve(),None,None,platform='mac')
-  pack(prepared['build_root'],prepared['patched'],prepared['romfs'],prepared['shaders'],a.font,a.work/'mac-app-build',a.output,a.sign,a.env_file)
+  pack(prepared['build_root'],prepared['patched'],prepared['romfs'],prepared['shaders'],a.font,a.work/'mac-app-build',a.output,a.sign,a.env_file,aoc=prepared.get('aoc'))
  else:
   if not all((a.patched,a.romfs,a.shaders)):p.error('Provide --game --keys, or --patched --romfs --shaders')
-  pack(ROOT,a.patched,a.romfs,a.shaders,a.font,a.work,a.output,a.sign,a.env_file)
+  pack(ROOT,a.patched,a.romfs,a.shaders,a.font,a.work,a.output,a.sign,a.env_file,aoc=a.aoc)
  sys.exit(0)
 a.patched=a.patched.resolve();a.romfs=a.romfs.resolve();a.shaders=a.shaders.resolve();a.font=a.font.resolve();a.work=a.work.resolve();a.output=a.output.resolve()
 from rewritten_display import validate_display_observations

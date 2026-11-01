@@ -56,3 +56,7 @@ Download and extract the complete project, then double-click a root `.command` l
 ## Mac app
 
 Build a standalone `.app` with `./setup.sh mac-app`, using your own game and keys or matching prepared Mac inputs. [Chinese tutorial](docs/MAC-APP.zh-CN.md).
+
+### External DLC in one-click builds
+
+Place your own DLC NSPs beside the base and 3.0.3 update before running the one-click tool. It extracts DLC with the official extractor, includes DLC resources in shader preparation, and outputs an `aoc` folder beside the IPA for both iOS build modes. Copy the entire `aoc` folder to the app’s `Documents` and restart. Keep `Documents/ACNHMobile` for the existing `.data` pack; DLC is separate. Adding/removing DLC invalidates preparation caches. The output `aoc` is a complete replacement set (including an empty set when no DLC is selected), not a merge. Mac app builds include the extracted DLC. No game files or keys are published.

@@ -40,3 +40,7 @@ GitHub Actions 在 main 运行 **Build game-free iOS shell**，勾选 publish �
 使用 `./setup.sh mac-app` 从自备游戏和 keys 制作完整 `.app`，或复用已有匹配的 Mac 输入。[制作教程](docs/MAC-APP.zh-CN.md)。
 
 本地 0.3.41（构建 43）：为 iOS 存档目录的整组原子替换加入文件协调，尝试改善第三方存档编辑器在游戏保存后失去授权的问题。整组保存、写入失败保护保留；SideStore 跨应用授权效果待真机验证。详见 docs/SAVE-FILE-COORDINATION.zh-CN.md。
+
+### 一键生成外置 DLC
+
+将自己的 DLC NSP 与本体、3.0.3 更新放在同一输入目录。一键工具调用官方提取器，并将 DLC 资源纳入着色器准备；两种 iOS 构建方式都会在 IPA 旁生成 `aoc` 文件夹。将整个 `aoc` 放入手机应用的 `Documents` 后重启；现有 `.data` 仍放在 `Documents/ACNHMobile`，无需因补充 DLC 重做。增加或移除 DLC 会使准备缓存失效，输出的 `aoc` 按完整集合替换，不合并旧文件；无 DLC 时输出空文件夹。Mac 应用构建会包含提取后的 DLC。游戏内容与 keys 不上传公开仓库。
