@@ -104,6 +104,7 @@ jobs:
           python dm/tools/tests/test_patches.py
           python dm/tools/tests/test_tail_call.py
           python dm/tools/tests/test_split_heaps.py
+          python dm/tools/tests/test_romfs_read.py
           python tools/test_shader_tables.py
           python tools/test_shader_appledouble.py
           make -C dm/gfx/tests GAME=01006F8002326000 t_cpu_tex t_sparse_layout t_tex_layout t_pso_skey t_alpha t_readback t_initial_uncached t_cube_placeholder t_view_swizzle
@@ -142,7 +143,8 @@ jobs:
           dm/host/tests/build/t_audren_work
           make -C dm/host/tests GAME=01006F8002326000 build/t_audren_layout
           dm/host/tests/build/t_audren_layout
-          make -C dm/host/tests GAME=01006F8002326000 build/t_fs_commit_list build/t_audio_device
+          make -C dm/host/tests GAME=01006F8002326000 build/t_fs build/t_fs_commit_list build/t_audio_device
+          dm/host/tests/build/t_fs
           dm/host/tests/build/t_fs_commit_list
           dm/host/tests/build/t_audio_device
       - name: Install project generator
