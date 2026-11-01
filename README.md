@@ -1,11 +1,11 @@
 # ACNH Mobile
 
-**0.3.87 · build 96 — official Metal 4 edition, iOS 26+.**
+**0.3.88 · build 97 — official Metal 4 edition, iOS 26+.**
 
 Optional iCloud Drive save sharing is available in the iPhone and Mac launchers; choose the same folder on both devices. Replaced saves are backed up locally.
 
-Experimental same-Wi-Fi local networking is included as an ACNH-only patch. LiveContainer + SideStore users must update to the LAN-enabled host attached to this release and allow local network access. [Release notes](docs/RELEASE-v0.3.87.zh-CN.md).
-A native compatibility runtime for Animal Crossing: New Horizons 3.0.3. The runtime and shader translation sources are based on [NXNative](https://github.com/seedds/nxnative) commit `68e8dc23587ccae209e0dbcaee34f0677e81aac5`.
+Experimental same-Wi-Fi local networking is included as an ACNH-only patch. LiveContainer + SideStore users must update to the LAN-enabled host attached to this release and allow local network access. [Release notes](docs/RELEASE-v0.3.88.zh-CN.md).
+A native compatibility runtime for Animal Crossing: New Horizons 3.0.3. The runtime and shader translation sources are based on [NXNative](https://github.com/seedds/nxnative) commit `dad38db62ef549404b617a73aa18d31aa8117c8e`.
 
 This edition uses the official Metal 4 replay path and matching shader chain. It retains ACNH's icon touch controls, tool wheel, physical controllers, R/field-triggered Chinese text input, direct external `.data` access, transactional saves, amiibo file import, Photos export and bounded haptics. Custom touch layouts can be edited from startup settings; there is no added in-game typing toolbar.
 
@@ -15,7 +15,7 @@ Adaptive expanded view preserves horizontal FOV and reveals more vertical scener
 
 ## Downloads
 
-[Releases](https://github.com/huajiaoshu520/acnh-mobile/releases) contains an **unsigned, game-free shell IPA**, audit report and SHA256 checksums. It contains no game program, game data, translated game shaders, keys, saves or fonts. The project app icon is the sole artwork exception. A shell alone cannot play the game; importing `.data` alone is insufficient.
+[Releases](https://github.com/huajiaoshu520/acnh-mobile/releases) attaches only the **LiveContainer + SideStore LAN host IPA** from v0.3.88 onward. The game-free shell is no longer attached. It contains no game program, game data, translated game shaders, keys, saves or fonts. The project app icon is the sole artwork exception. A shell alone cannot play the game; importing `.data` alone is insufficient.
 
 Use an Apple Silicon Mac and your own rewritten 3.0.3 modules, complete matching official iOS shader cache, RomFS and font to generate a private IPA. Sign the entire resulting package, including Guest.framework when using shell assembly. Do not upload private, game-containing IPA files.
 
@@ -45,7 +45,7 @@ The private embedded build and game-free shell compile in Release. The shell has
 
 ## GitHub builds
 
-Actions → **Build game-free iOS shell** → Run workflow on `main`. Leave **publish** off for artifacts only; enable it to create the release matching `config/version.json` after successful build and audits. A `v*` tag also builds and publishes. Existing releases are never overwritten. This edition publishes one iOS 26 shell; historical releases and compatibility branches remain available.
+Actions → **Validate and publish ACNH Mobile** → Run workflow on `main`. Leave **publish** off for artifacts only; enable it to create the release matching `config/version.json` after successful build and audits. A `v*` tag also builds and publishes. Existing releases are never overwritten. This edition publishes one iOS 26 shell; historical releases and compatibility branches remain available.
 
 Credits and licenses: [NXNative](https://github.com/seedds/nxnative), [D2R Mobile](https://github.com/jhaizhou-ops/d2r-mobile), [LICENSE](LICENSE), [third-party notices](THIRD_PARTY_NOTICES.md). Not affiliated with Nintendo.
 

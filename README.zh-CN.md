@@ -1,9 +1,9 @@
 # ACNH Mobile
 
-**v0.3.87 · 构建 96，官方 Metal 4 版，要求 iOS 26 或更新系统。**
+**v0.3.88 · 构建 97，官方 Metal 4 版，要求 iOS 26 或更新系统。**
 
-新增动森专属实验性本地联机。LiveContainer + SideStore 用户需更新到本版附件的联机宿主包，并允许本地网络权限。[更新说明](docs/RELEASE-v0.3.87.zh-CN.md)。
-本次 main 换用 NXNative 官方渲染核心与配套着色器翻译流程，基线为 `68e8dc23587ccae209e0dbcaee34f0677e81aac5`。保留原项目的图标按键、工具环、手柄、R 键和输入框唤起系统输入法，以及 `.data` 直读、事务存档、amiibo 文件导入、照片导出与震动反馈。启动页提供自定义控制器编辑，游戏内不增加打字工具栏。
+新增动森专属实验性本地联机。LiveContainer + SideStore 用户需更新到本版附件的联机宿主包，并允许本地网络权限。[更新说明](docs/RELEASE-v0.3.88.zh-CN.md)。
+本次 main 换用 NXNative 官方渲染核心与配套着色器翻译流程，基线为 `dad38db62ef549404b617a73aa18d31aa8117c8e`。保留原项目的图标按键、工具环、手柄、R 键和输入框唤起系统输入法，以及 `.data` 直读、事务存档、amiibo 文件导入、照片导出与震动反馈。启动页提供自定义控制器编辑，游戏内不增加打字工具栏。
 
 本版包含 Duo 半折叠辅助显示试验、音频启动布局恢复与提取工具地区兼容修复。保留着色器工具预检和手动重试、分组启动页、专属与自定义控制器、相册和输入法，现有 `.data` 继续使用。Duo 真机效果仍需测试。[更新说明](docs/RELEASE-v0.3.47.zh-CN.md)。
 
@@ -11,7 +11,7 @@
 
 ## 下载与使用
 
-[Releases](https://github.com/huajiaoshu520/acnh-mobile/releases) 提供未签名的**无游戏空壳 IPA**、审计报告和 SHA256 校验文件。
+[Releases](https://github.com/huajiaoshu520/acnh-mobile/releases) 从 v0.3.88 起仅附带 **LiveContainer + SideStore 联机宿主 IPA**，不再附带空壳或校验文件。
 
 空壳不含游戏程序、游戏数据、转换后的游戏着色器、key、存档或字体。项目图标是唯一的识别图片。空壳不能直接游玩，仅导入 `.data` 也无法启动；需要在电脑上使用自己的游戏程序、官方配套着色器和字体生成私人完整 IPA，再整包签名。
 
@@ -29,7 +29,7 @@
 
 已完成 Release 编译、空壳无游戏内容与版本校验，以及使用自备文件补包的本机验证；Mac 启动到机场，数据读取、存档、文字、amiibo 和照片相关回归通过。完整手机游戏流程、手柄、输入法以及相册/NFC 权限仍需真机验证，不承诺解决所有发热或画面问题。
 
-GitHub Actions 在 main 运行 **Build game-free iOS shell**，勾选 publish 可在构建和审计通过后创建对应版本的 Release；不勾选只生成构建产物。已有 Release 不覆盖。本次发布 iOS 26 官方 Metal 4 空壳，历史发布保留。
+GitHub Actions 在 main 运行 **Validate and publish ACNH Mobile**，勾选 publish 可在构建和审计通过后创建对应版本的 Release；不勾选只做构建验证。已有 Release 不覆盖。构建验证仍保留，正式附件仅为联机宿主 IPA，历史发布保留。
 
 ## 本地一键入口
 
