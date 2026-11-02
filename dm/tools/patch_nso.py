@@ -169,7 +169,7 @@ elif ue_why.startswith('[RED] '): print(f'[RED] {NAME}: {ue_why[6:]}: Unreal\'s 
 # Observation gate OBS_UE_REGION goes on that store (below), the size register in the gate number's upper bits: the host gives the region what the alias region has room for there
 # (dm/host/hle_svc.c "Unreal's engine region"), where the engine would ask for 62 GB (16 GB in Unreal Engine 4.18)
 import ue_region
-UE_REGION, UE_REGION_REG, ue_region_why = ue_region.find(bytes(IMG), TEXT_END, RO_OFF, DATA_OFF) if NAME == 'main' else (None, None, '')
+UE_REGION, UE_REGION_REG, UE_REGION_X1, ue_region_why = ue_region.find(bytes(IMG), TEXT_END, RO_OFF, DATA_OFF) if NAME == 'main' else (None, None, None, '')
 if UE_REGION is not None: print(f'{NAME}: {ue_region_why}')
 elif ue_region_why.startswith('[RED] '): print(f'[RED] {NAME}: {ue_region_why[6:]}: the engine asks for its whole default region')
 
@@ -579,11 +579,28 @@ def x18_words(lo, hi):
 # The x18 scan and the spin wait search only read the original image, so they can run in worker processes.
 def in_parallel(fn, jobs):
     """Returns [fn(*job) for job in jobs], computed in forked worker processes.
-    The workers are forked on each call, so they see the module's state as it is at that point."""
+    The workers are forked on each call, so they see the module's state as it is at that point.
+    Pool.terminate takes the job queue's lock for good, sends each worker one SIGTERM and joins it with no timeout, so that SIGTERM must end a worker wherever it lands. Python's handler
+    only sets a flag, which Python clears in a new child, so a worker just forked could lose the signal, wait for that lock forever and hang the rewrite (jobs too small for every worker to
+    start first). So SIGTERM stays blocked across the fork, which keeps it pending in the kernel, until a worker has the default action back and that action can end it.
+    In this process it acts only while waiting for the results: the handler's sys.exit raised during the pool's teardown could stop a terminate halfway and leave workers behind, or be discarded
+    in a destructor."""
     if WORKERS < 2 or len(jobs) < 2:
         return [fn(*job) for job in jobs]
-    with multiprocessing.get_context('fork').Pool(min(WORKERS, len(jobs))) as pool:
-        return pool.starmap(fn, jobs)
+    def worker_signals():
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGTERM})
+    mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})   # the pool's threads inherit it: a worker that replaces a lost one starts the same way
+    try:
+        with multiprocessing.get_context('fork').Pool(min(WORKERS, len(jobs)), initializer=worker_signals) as pool:
+            signal.pthread_sigmask(signal.SIG_SETMASK, mask)   # a SIGTERM that came meanwhile acts here, inside the with, which reaps the workers
+            try: results = pool.starmap(fn, jobs)
+            finally: signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
+            pool.close(); pool.join()   # finished: the workers leave by the pool's own sentinels, so a finished rewrite sends no SIGTERM
+            return results
+    finally:
+        pool = None   # its destructors run here, still blocked
+        signal.pthread_sigmask(signal.SIG_SETMASK, mask)
 
 def find_x18_words():
     """x18_words over all the code, in 1 MB pieces"""
@@ -1305,6 +1322,9 @@ if UE_REGION is not None:
     assert UE_REGION not in kinds and not any(lo <= UE_REGION < hi for wseg in windows for lo, hi in [(wseg[0].address, wseg[-1].address + 4)]), f'engine region gate conflicts with a rewrite site {UE_REGION:#x}'
     region_obs.append((UE_REGION, OBS_UE_REGION | UE_REGION_REG << 8, f'{struct.unpack_from("<I", IMG, UE_REGION)[0]:08x}',
                        f'Unreal\'s engine region: its size in x{UE_REGION_REG}, stored before nninitStartup reserves it; the host gives what the alias region has room for (hle_svc.c)'))
+    if UE_REGION_X1 is not None:   # the request's size set again after the store (TRIANGLE STRATEGY): mov x1, xS, so it takes what the gate gave S
+        assert UE_REGION_X1 not in kinds and not any(lo <= UE_REGION_X1 < hi for wseg in windows for lo, hi in [(wseg[0].address, wseg[-1].address + 4)]), f'engine region size conflicts with a rewrite site {UE_REGION_X1:#x}'
+        struct.pack_into('<I', IMG, UE_REGION_X1, 0xAA0003E1 | UE_REGION_REG << 16)
 for off, oid, ow, why in region_obs: use_area(off); put_branch(off, site_obs(off, oid, int(ow, 16))); stat('obs')
 obs += region_obs
 

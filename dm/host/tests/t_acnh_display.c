@@ -294,5 +294,200 @@ int main(void){
  assert(fabsf(ui_float(rp,0x48)*(2622.f/1206.f)/(16.f/9.f)-1)<1e-6);
  acnh_wide_set_aspect(16.f/9.f);r[0]=up;ui_pane(r,0);r[0]=rp;ui_pane(r,0);
  assert(ui_float(rp,0x48)==1&&ui_float(rp,0x4c)==1);
+ // The decorating window keeps its tint and furniture controls; only its
+ // redundant scene-capture pane is suppressed in expanded view. Original
+ // aspect restores opacity, including an originally hidden capture.
+ uint64_t capParent[40]={0},capPane[40]={0};
+ uintptr_t capture_parent=(uintptr_t)capParent,cc=(uintptr_t)capPane;
+ capParent[0]=base+0x4a85590;*(uintptr_t*)(capture_parent+0x18)=up;
+ strcpy((char*)(capture_parent+0xb0),"N_InOut_03");
+ capPane[0]=base+0x4a85b38;*(uintptr_t*)(cc+0x18)=capture_parent;
+ strcpy((char*)(cc+0xb0),"N_Capture_00");
+ fput((void*)(cc+0x50),932);fput((void*)(cc+0x54),1000);
+ *(uint8_t*)(cc+0x59)=0xff;
+ const float capture_aspects[]={2622.f/1206.f,4.f/3.f};
+ for(unsigned i=0;i<2;i++){
+  acnh_wide_set_aspect(capture_aspects[i]);r[0]=cc;ui_pane(r,0);
+  assert(*(uint8_t*)(cc+0x59)==0x00);ui_pane(r,0);
+  assert(*(uint8_t*)(cc+0x59)==0x00);
+  acnh_wide_set_aspect(16.f/9.f);ui_pane(r,0);
+  assert(*(uint8_t*)(cc+0x59)==0xff);
+ }
+ *(uint8_t*)(cc+0x59)=0x00;acnh_wide_set_aspect(2622.f/1206.f);ui_pane(r,0);
+ acnh_wide_set_aspect(16.f/9.f);ui_pane(r,0);assert(*(uint8_t*)(cc+0x59)==0x00);
+ // Other capture dimensions and parents retain their original opacity.
+ *(uint8_t*)(cc+0x59)=0xff;fput((void*)(cc+0x50),740);
+ acnh_wide_set_aspect(2622.f/1206.f);ui_pane(r,0);assert(*(uint8_t*)(cc+0x59)==0xff);
+ fput((void*)(cc+0x50),932);strcpy((char*)(capture_parent+0xb0),"N_Other_00");
+ ui_pane(r,0);assert(*(uint8_t*)(cc+0x59)==0xff);
+ // Entry/exit wipe lane geometry covers both phone edges. Keep animated
+ // vertical offsets and the independent icon unchanged; repeat and restore.
+ uint64_t wipeAll[40]={0},wipeType[40]={0},wipeLanes[8][40]={{0}},wipeIcon[40]={0};
+ uintptr_t wa=(uintptr_t)wipeAll,wt=(uintptr_t)wipeType,wi=(uintptr_t)wipeIcon;
+ *(uintptr_t*)wa=*(uintptr_t*)wt=base+0x4a85590;
+ *(uintptr_t*)(wa+0x18)=up;*(uintptr_t*)(wt+0x18)=wa;
+ strcpy((char*)(wa+0xb0),"N_All_00");strcpy((char*)(wt+0xb0),"N_Type_00");
+ for(int lane=0;lane<8;lane++){
+  uintptr_t q=(uintptr_t)wipeLanes[lane];*(uintptr_t*)q=base+0x4a87220;
+  *(uintptr_t*)(q+0x18)=wt;sprintf((char*)(q+0xb0),"P_Base_%02d",lane);
+  fput((void*)(q+0x30),-840+240*lane);fput((void*)(q+0x34),123+lane);
+  fput((void*)(q+0x50),lane==7?242:241);fput((void*)(q+0x54),1301);
+  fput((void*)(q+0x48),1);fput((void*)(q+0x4c),1);
+ }
+ const float wipeAspects[]={2622.f/1206.f,2868.f/1320.f,16.f/9.f,4.f/3.f};
+ for(unsigned a=0;a<4;a++){
+  acnh_wide_set_aspect(wipeAspects[a]);r[0]=up;ui_pane(r,0);
+  float ex=fmaxf(1,wipeAspects[a]/(16.f/9.f)),previous=0;
+  for(int lane=0;lane<8;lane++){
+   uintptr_t q=(uintptr_t)wipeLanes[lane];r[0]=q;ui_pane(r,0);ui_pane(r,0);
+   float x=ui_float(q,0x30),width=ui_float(q,0x50);
+   assert(fabsf(x-(-840+240*lane)*ex)<.002f);
+   assert(fabsf(width-(lane==7?242:241)*ex)<.002f);
+   assert(ui_float(q,0x34)==123+lane&&ui_float(q,0x54)==1301);
+   assert(ui_float(q,0x48)==1&&ui_float(q,0x4c)==1);
+   if(lane)assert(x-width/2<=previous+.002f);else assert(x-width/2<=-960*ex);
+   previous=x+width/2;
+  }
+  assert(previous>=960*ex);
+ }
+ *(uintptr_t*)wi=base+0x4a87220;*(uintptr_t*)(wi+0x18)=wt;
+ strcpy((char*)(wi+0xb0),"P_Icon_00");fput((void*)(wi+0x50),256);fput((void*)(wi+0x54),256);
+ acnh_wide_set_aspect(2622.f/1206.f);r[0]=wi;ui_pane(r,0);assert(ui_float(wi,0x50)==256);
+ uint64_t hotelWipeChild[40]={0};uintptr_t hc=(uintptr_t)hotelWipeChild;
+ *(uintptr_t*)hc=base+0x4a87220;*(uintptr_t*)(hc+0x18)=(uintptr_t)wipeLanes[0];
+ strcpy((char*)(hc+0xb0),"P_Base_08");fput((void*)(hc+0x50),241);fput((void*)(hc+0x54),1301);
+ acnh_wide_set_aspect(2622.f/1206.f);r[0]=(uintptr_t)wipeLanes[0];ui_pane(r,0);r[0]=hc;ui_pane(r,0);
+ assert(fabsf(ui_float(hc,0x50)-241*(2622.f/1206.f)/(16.f/9.f))<.002f);
+ assert(ui_float(hc,0x30)==0);ui_pane(r,0);
+ acnh_wide_set_aspect(16.f/9.f);ui_pane(r,0);assert(ui_float(hc,0x50)==241);
+ // CastMainBG's overscan has a 5:3 ratio, so the ordinary 16:9
+ // full-screen rule does not apply. Extend only the named background.
+ uint64_t castGroup[40]={0},castBG[40]={0};
+ uintptr_t cbg=(uintptr_t)castGroup,cback=(uintptr_t)castBG;
+ *(uintptr_t*)cbg=base+0x4a85590;*(uintptr_t*)(cbg+0x18)=up;
+ strcpy((char*)(cbg+0xb0),"N_InOut_00");
+ *(uintptr_t*)cback=base+0x4a87220;*(uintptr_t*)(cback+0x18)=cbg;
+ strcpy((char*)(cback+0xb0),"P_Base_00");
+ fput((void*)(cback+0x50),2000);fput((void*)(cback+0x54),1200);
+ fput((void*)(cback+0x48),1);fput((void*)(cback+0x4c),1);
+ for(unsigned a=0;a<4;a++){
+  acnh_wide_set_aspect(wipeAspects[a]);r[0]=up;ui_pane(r,0);
+  r[0]=cback;ui_pane(r,0);ui_pane(r,0);
+  assert(fabsf(ui_float(cback,0x48)-fmaxf(1,wipeAspects[a]/(16.f/9.f)))<1e-6f);
+  assert(ui_float(cback,0x50)==2000&&ui_float(cback,0x54)==1200);
+ }
+ acnh_wide_set_aspect(16.f/9.f);r[0]=cback;ui_pane(r,0);
+ strcpy((char*)(cback+0xb0),"P_Character_00");
+ acnh_wide_set_aspect(2622.f/1206.f);ui_pane(r,0);
+ assert(ui_float(cback,0x48)==1); // equally sized non-background stays unchanged
+ // The job curtain group cancels root compensation for both its meshes
+ // and its animated travel. It must not expose frame-zero off-screen art.
+ uint64_t jobObj[40]={0};uintptr_t job=(uintptr_t)jobObj;
+ *(uintptr_t*)job=base+0x4a85590;*(uintptr_t*)(job+0x18)=up;
+ strcpy((char*)(job+0xb0),"N_JobWipe_00");
+ fput((void*)(job+0x48),1);fput((void*)(job+0x4c),1);
+ for(unsigned a=0;a<4;a++){
+  acnh_wide_set_aspect(wipeAspects[a]);r[0]=up;ui_pane(r,0);r[0]=job;ui_pane(r,0);ui_pane(r,0);
+  float ex=fmaxf(1,wipeAspects[a]/(16.f/9.f)),ey=fmaxf(1,(16.f/9.f)/wipeAspects[a]);
+  assert(fabsf(ui_float(job,0x48)-ex)<1e-6f&&fabsf(ui_float(job,0x4c)-ey)<1e-6f);
+  assert((1280-596.f/2)*ui_float(job,0x48)>960*ex);
+ }
+ acnh_wide_set_aspect(16.f/9.f);r[0]=job;ui_pane(r,0);assert(ui_float(job,0x48)==1&&ui_float(job,0x4c)==1);
+ // Small BgMask mesh: only the runtime screen-sized instance is extended.
+ uint64_t maskObj[40]={0};uintptr_t mask=(uintptr_t)maskObj;
+ *(uintptr_t*)mask=base+0x4a87220;*(uintptr_t*)(mask+0x18)=up;strcpy((char*)(mask+0xb0),"P_Mask");
+ fput((void*)(mask+0x50),100);fput((void*)(mask+0x54),100);
+ fput((void*)(mask+0x48),19.2f);fput((void*)(mask+0x4c),10.8f);
+ acnh_wide_set_aspect(2622.f/1206.f);r[0]=up;ui_pane(r,0);r[0]=mask;ui_pane(r,0);ui_pane(r,0);
+ assert(fabsf(ui_float(mask,0x48)-19.2f*(2622.f/1206.f)/(16.f/9.f))<.00001f);
+ acnh_wide_set_aspect(16.f/9.f);ui_pane(r,0);assert(ui_float(mask,0x48)==19.2f);
+ fput((void*)(mask+0x48),1);fput((void*)(mask+0x4c),1);acnh_wide_set_aspect(2622.f/1206.f);ui_pane(r,0);
+ assert(ui_float(mask,0x48)==1&&ui_float(mask,0x4c)==1);
+ // OrderList's nested upper/lower frame pictures and gradient widen only
+ // their own mesh. Titles, item cards and their animation are not scaled.
+ uint64_t positionObj[40]={0},orderAnim[40]={0},orderFrame[40]={0},orderInner[40]={0},orderGrad[40]={0};
+ uintptr_t pos=(uintptr_t)positionObj,oa=(uintptr_t)orderAnim,of=(uintptr_t)orderFrame,oi=(uintptr_t)orderInner,og=(uintptr_t)orderGrad;
+ *(uintptr_t*)pos=*(uintptr_t*)oa=base+0x4a85590;*(uintptr_t*)(pos+0x18)=up;*(uintptr_t*)(oa+0x18)=pos;
+ strcpy((char*)(pos+0xb0),"N_Position_00");strcpy((char*)(oa+0xb0),"N_InOut_00");
+ *(uintptr_t*)of=*(uintptr_t*)oi=*(uintptr_t*)og=base+0x4a87220;
+ *(uintptr_t*)(of+0x18)=oa;*(uintptr_t*)(oi+0x18)=of;*(uintptr_t*)(og+0x18)=pos;
+ strcpy((char*)(of+0xb0),"P_FrameU_00");strcpy((char*)(oi+0xb0),"P_FrameU_01");strcpy((char*)(og+0xb0),"P_Grad_00");
+ fput((void*)(of+0x50),1920);fput((void*)(oi+0x50),1920);fput((void*)(og+0x50),2000);
+ fput((void*)(of+0x54),80);fput((void*)(oi+0x54),80);fput((void*)(og+0x54),600);fput((void*)(of+0x34),540);
+ for(unsigned a=0;a<4;a++){
+  acnh_wide_set_aspect(wipeAspects[a]);r[0]=up;ui_pane(r,0);float ex=fmaxf(1,wipeAspects[a]/(16.f/9.f));
+  r[0]=of;ui_pane(r,0);ui_pane(r,0);r[0]=oi;ui_pane(r,0);r[0]=og;ui_pane(r,0);
+  assert(fabsf(ui_float(of,0x50)-1920*ex)<.002f&&fabsf(ui_float(oi,0x50)-1920*ex)<.002f);
+  assert(fabsf(ui_float(og,0x50)-2000*ex)<.002f&&ui_float(of,0x34)==540);
+ }
+ // Patterned-circle fill also has zero-height top/bottom rectangles.
+ strcpy((char*)(wp+0xb0),"P_SirclePattern_00");
+ acnh_wide_set_aspect(2622.f/1206.f);r[0]=up;ui_pane(r,0);
+ fput((void*)(up+0x70),ui_float(up,0x48));fput((void*)(wp+0x70),.5f);
+ r[0]=sp;ui_pane(r,0);assert(ui_float(sp,0x50)>1098);
+ uint64_t circleTopObj[40]={0};uintptr_t ct=(uintptr_t)circleTopObj;
+ *(uintptr_t*)ct=base+0x4a87220;*(uintptr_t*)(ct+0x18)=wp;
+ strcpy((char*)(ct+0xb0),"P_T_00");fput((void*)(ct+0x50),1980);fput((void*)(ct+0x54),0);
+ r[0]=ct;ui_pane(r,0);float cw=ui_float(ct,0x50);assert(cw>1980&&ui_float(ct,0x54)==0);
+ ui_pane(r,0);assert(ui_float(ct,0x50)==cw);
+ acnh_wide_set_aspect(16.f/9.f);ui_pane(r,0);assert(ui_float(ct,0x50)==1980);
+ // ThemeStart's two runtime-traced gradient panes must span the same
+ // normalized width as the viewport while retaining opacity and y offsets.
+ uint64_t tsIn[40]={0},tsOut[40]={0},tsNull[40]={0},tsSh[2][40]={{0}};
+ uintptr_t ti=(uintptr_t)tsIn,to=(uintptr_t)tsOut,tn=(uintptr_t)tsNull;
+ *(uintptr_t*)ti=*(uintptr_t*)to=*(uintptr_t*)tn=base+0x4a85590;
+ *(uintptr_t*)(ti+0x18)=up;*(uintptr_t*)(to+0x18)=ti;*(uintptr_t*)(tn+0x18)=to;
+ strcpy((char*)(ti+0xb0),"N_InOut_00");strcpy((char*)(to+0xb0),"N_OutS_00");strcpy((char*)(tn+0xb0),"N_null_00");
+ for(int j=0;j<2;j++){
+  uintptr_t q=(uintptr_t)tsSh[j];*(uintptr_t*)q=base+0x4a87220;*(uintptr_t*)(q+0x18)=tn;
+  sprintf((char*)(q+0xb0),"P_BGSh_%02d",j);fput((void*)(q+0x50),1920);fput((void*)(q+0x54),j?300:270);
+  fput((void*)(q+0x34),j?270:540);*(uint8_t*)(q+0x59)=73;
+ }
+ for(unsigned a=0;a<4;a++){
+  acnh_wide_set_aspect(wipeAspects[a]);r[0]=up;ui_pane(r,0);float ex=fmaxf(1,wipeAspects[a]/(16.f/9.f));
+  for(int j=0;j<2;j++){
+   uintptr_t q=(uintptr_t)tsSh[j];r[0]=q;ui_pane(r,0);ui_pane(r,0);
+   assert(fabsf(ui_float(q,0x50)-1920*ex)<.002f&&ui_float(q,0x34)==(j?270:540));
+   assert(*(uint8_t*)(q+0x59)==73);
+  }
+ }
+ // The reveal aperture dimensions are animation output. Only its scale
+ // compensates the wider canvas, including the zero-sized closing frame.
+ uint64_t revealGroup[40]={0},revealDemo[40]={0},revealCircle[40]={0};
+ uintptr_t rg=(uintptr_t)revealGroup,rd=(uintptr_t)revealDemo,rc=(uintptr_t)revealCircle;
+ *(uintptr_t*)rg=*(uintptr_t*)rd=base+0x4a85590;*(uintptr_t*)rc=base+0x4a87220;
+ *(uintptr_t*)(rg+0x18)=up;*(uintptr_t*)(rd+0x18)=rg;*(uintptr_t*)(rc+0x18)=rd;
+ strcpy((char*)(rg+0xb0),"N_Demo1Wipe_00");strcpy((char*)(rd+0xb0),"N_Demo_00");strcpy((char*)(rc+0xb0),"P_SirclePattern_00");
+ fput((void*)(rc+0x48),1);fput((void*)(rc+0x4c),1);
+ const float apertureSizes[]={2830,814,0};
+ for(unsigned a=0;a<4;a++){
+  acnh_wide_set_aspect(wipeAspects[a]);r[0]=up;ui_pane(r,0);float ex=fmaxf(1,wipeAspects[a]/(16.f/9.f));
+  for(int j=0;j<3;j++){
+   fput((void*)(rc+0x50),apertureSizes[j]);fput((void*)(rc+0x54),apertureSizes[j]);
+   r[0]=rc;ui_pane(r,0);ui_pane(r,0);
+   assert(fabsf(ui_float(rc,0x48)-ex)<1e-6f&&ui_float(rc,0x50)==apertureSizes[j]);
+  }
+ }
+ // DAL borders move to the new edges; their child mesh widths, flower/trim
+ // scale and the centred logo stay untouched.
+ uint64_t dalIn[40]={0},dalType[40]={0},dalSide[2][40]={{0}};
+ uintptr_t di=(uintptr_t)dalIn,dt=(uintptr_t)dalType;
+ *(uintptr_t*)di=*(uintptr_t*)dt=base+0x4a85590;*(uintptr_t*)(di+0x18)=up;*(uintptr_t*)(dt+0x18)=di;
+ strcpy((char*)(di+0xb0),"N_InOut_00");strcpy((char*)(dt+0xb0),"N_Type_00");
+ for(int j=0;j<2;j++){
+  uintptr_t q=(uintptr_t)dalSide[j];*(uintptr_t*)q=base+0x4a85590;*(uintptr_t*)(q+0x18)=dt;
+  strcpy((char*)(q+0xb0),j?"N_PatternR_00":"N_PatternL_00");fput((void*)(q+0x30),j?940:-940);
+  fput((void*)(q+0x48),1);fput((void*)(q+0x4c),1);
+ }
+ for(unsigned a=0;a<4;a++){
+  acnh_wide_set_aspect(wipeAspects[a]);r[0]=up;ui_pane(r,0);float ex=fmaxf(1,wipeAspects[a]/(16.f/9.f));
+  fput((void*)(up+0x70),ui_float(up,0x48));fput((void*)(dt+0x70),ui_float(up,0x48));
+  for(int j=0;j<2;j++){
+   uintptr_t q=(uintptr_t)dalSide[j];r[0]=q;ui_pane(r,0);ui_pane(r,0);
+   assert(fabsf(ui_float(q,0x30)-(j?1:-1)*(940+960*(ex-1)))<.002f);
+   assert(ui_float(q,0x48)==1&&ui_float(q,0x4c)==1);
+  }
+ }
  puts("PASS: world proportions, fixed vertical FOV, minimap exclusion, square views, UI proportion, idempotence and restore");
+ return 0;
 }

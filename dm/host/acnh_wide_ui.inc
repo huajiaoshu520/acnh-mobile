@@ -1,7 +1,7 @@
 // UI-only layout adaptation; derives from the documented nn::ui2d pane ABI.
 // ACNHRecomp reference (MIT notice retained with this build).
 typedef struct {
- uintptr_t key,vtable;int root,valid,shifted,storage_header;
+ uintptr_t key,vtable;int root,valid,shifted,storage_header,interior_wipe,interior_capture_hidden,interior_capture_alpha;
  float sx,last_sx,width,last_width,tx,last_tx,ty,last_ty;
  float sy,last_sy,height,last_height;
  float action_center,action_correction;
@@ -30,6 +30,28 @@ static void ui_pane(uint64_t *r,int param) {
   !strcmp((const char*)(parent+0xb0),"N_Rotate_00");
  int cursor=vt==0x4a8f128&&!strcmp((const char*)(p+0xb0),"L_Cursor_00");
  int pocket_drag=(parts||vt==0x4a8f128)&&!strcmp((const char*)(p+0xb0),"L_DragBtn_00");
+ // Interior storage's capture pane replays screen pixels using the original
+ // canvas coordinates. Root UI compensation moves that replay independently
+ // of the live room, creating a second character and a vertical scene seam.
+ // In expanded view retain the live room under the existing tinted window;
+ // suppress only this redundant capture replay, not the frame or item grid.
+ // Restore its original opacity when returning to the original aspect.
+ if(vt==0x4a85b38&&!strcmp(pane_name,"N_Capture_00")&&parent&&
+    !strcmp((const char*)(parent+0xb0),"N_InOut_03")&&
+    ui_float(p,0x50)==932.f&&ui_float(p,0x54)==1000.f){
+  pthread_mutex_lock(&ui_mutex);
+  acnh_ui_record *c=ui_record(p,fabsf(k-1.f)>.001f);
+  uint8_t *alpha=(uint8_t*)(p+0x59);
+  if(c){
+   if(fabsf(k-1.f)>.001f){
+    if(!c->interior_capture_hidden)c->interior_capture_alpha=*alpha;
+    *alpha=0;c->interior_capture_hidden=1;
+   }else if(c->interior_capture_hidden){
+    *alpha=c->interior_capture_alpha;c->interior_capture_hidden=0;
+   }
+  }
+  pthread_mutex_unlock(&ui_mutex);return;
+ }
  if(parent&&!plain&&!parts&&!picture&&!capture_picture&&!balloon_text&&!cursor&&!pocket_drag)return;
  pthread_mutex_lock(&ui_mutex);
  if(!parent){
@@ -54,6 +76,40 @@ static void ui_pane(uint64_t *r,int param) {
   uintptr_t next=*(uintptr_t*)(top+0x18);if(!next)break;top=next;
  }
  acnh_ui_record *root=ui_record(top,0);if(!root||!root->root){pthread_mutex_unlock(&ui_mutex);return;}
+ // DAL/visitor loading screen: anchor the two decorative pattern groups
+ // to the wider edges. Translate each group outward; never stretch its
+ // white trim, flowers, arrows or the separate centred airline logo.
+ uintptr_t pattern_grand=*(uintptr_t*)(parent+0x18);
+ uintptr_t pattern_great=pattern_grand?*(uintptr_t*)(pattern_grand+0x18):0;
+ int dal_left=plain&&!strcmp(pane_name,"N_PatternL_00");
+ int dal_right=plain&&!strcmp(pane_name,"N_PatternR_00");
+ if((dal_left||dal_right)&&!strcmp((char*)(parent+0xb0),"N_Type_00")&&
+    pattern_grand&&!strcmp((char*)(pattern_grand+0xb0),"N_InOut_00")&&pattern_great==top){
+  acnh_ui_record *c=ui_record(p,ex>1.001f);
+  float ps=ui_float(parent,0x70),rs=ui_float(top,0x70);
+  if(c&&isfinite(ps)&&isfinite(rs)&&fabsf(ps)>1e-5f){
+   float tx=ui_float(p,0x30);
+   if(!c->valid||tx!=c->last_tx)c->tx=tx;
+   c->last_tx=c->tx+(dal_right?1.f:-1.f)*root->width*.5f*(ex-1.f)*rs/ps;
+   ui_write(p,0x30,c->last_tx);c->valid=1;
+  }
+  pthread_mutex_unlock(&ui_mutex);return;
+ }
+ // The job curtain's off-screen travel uses the original canvas units.
+ // Compensate the whole curtain-only group so its mesh AND translation
+ // follow the widened canvas together. Scaling just the root exposes the
+ // parked edge earlier; changing keyframe time would hide that mismatch.
+ if(plain&&!strcmp(pane_name,"N_JobWipe_00")&&parent==top){
+  acnh_ui_record *c=ui_record(p,fabsf(k-1.f)>.001f);
+  if(c){
+   float sx=ui_float(p,0x48),sy=ui_float(p,0x4c);
+   if(!c->valid||sx!=c->last_sx)c->sx=sx;
+   if(!c->valid||sy!=c->last_sy)c->sy=sy;
+   c->last_sx=c->sx*ex;c->last_sy=c->sy*ey;
+   ui_write(p,0x48,c->last_sx);ui_write(p,0x4c,c->last_sy);c->valid=1;
+  }
+  pthread_mutex_unlock(&ui_mutex);return;
+ }
  // The menu cursor receives an already transformed target position from
  // the selected item's world matrix. Converting it as ordinary root-local
  // coordinates applies the root compensation twice (drift toward centre).
@@ -156,12 +212,65 @@ static void ui_pane(uint64_t *r,int param) {
   pthread_mutex_unlock(&ui_mutex);return;
  }
  if(picture||capture_picture){
+  // BgMask is a 100x100 solid picture enlarged by the game at runtime.
+  // Its screen-sized result must follow the canvas, not the source mesh size.
+  if(parent==top&&!strcmp(pane_name,"P_Mask")&&
+     ui_float(p,0x50)==100.f&&ui_float(p,0x54)==100.f){
+   acnh_ui_record *c=ui_record(p,0);
+   float sx=ui_float(p,0x48),sy=ui_float(p,0x4c);
+   float bx=c&&c->valid&&sx==c->last_sx?c->sx:sx;
+   float by=c&&c->valid&&sy==c->last_sy?c->sy:sy;
+   if(fabsf(bx)*100>=root->width*.9f&&fabsf(by)*100>=root->height*.9f){
+    if(!c)c=ui_record(p,fabsf(k-1.f)>.001f);
+    if(c){c->sx=bx;c->sy=by;c->last_sx=bx*ex;c->last_sy=by*ey;
+     ui_write(p,0x48,c->last_sx);ui_write(p,0x4c,c->last_sy);c->valid=1;}
+   }
+   pthread_mutex_unlock(&ui_mutex);return;
+  }
   if(capture_picture){pthread_mutex_unlock(&ui_mutex);return;}
   float w=ui_float(p,0x50),h=ui_float(p,0x54),H=root->height;
   const char *name=pane_name;
+  // The completed-home reveal shrinks the round aperture's dimensions.
+  // In a wider viewport an unchanged aperture meets the new corners sooner.
+  // Adapt only this mask (not its sibling logo/title), preserving keyframe
+  // dimensions and time while keeping its normalized canvas coverage.
+  uintptr_t demo_parent=*(uintptr_t*)(parent+0x18);
+  int showcase_circle=demo_parent&&
+   !strcmp((char*)(demo_parent+0xb0),"N_Demo1Wipe_00")&&
+   ((!strcmp(name,"P_SirclePattern_00")&&!strcmp((char*)(parent+0xb0),"N_Demo_00"))||
+    (!strcmp(name,"P_Circle_00")&&!strcmp((char*)(parent+0xb0),"N_Demo_01")));
+  if(showcase_circle){
+   acnh_ui_record *c=ui_record(p,fabsf(k-1.f)>.001f);
+   if(c){
+    float sx=ui_float(p,0x48),sy=ui_float(p,0x4c);
+    if(!c->valid||sx!=c->last_sx)c->sx=sx;
+    if(!c->valid||sy!=c->last_sy)c->sy=sy;
+    c->last_sx=c->sx*ex;c->last_sy=c->sy*ey;
+    ui_write(p,0x48,c->last_sx);ui_write(p,0x4c,c->last_sy);c->valid=1;
+   }
+   pthread_mutex_unlock(&ui_mutex);return;
+  }
+  // ThemeStart's title dimming is two gradient pictures, 270 and 300
+  // high, not a full-screen BgMask. Runtime tracing identifies both under
+  // N_null_00/N_OutS_00. The related Theme/facility titles share this family.
+  acnh_ui_record *shade=ui_record(p,0);
+  float shade_width=shade&&shade->valid&&w==shade->last_width?shade->width:w;
+  int shade_family=0;uintptr_t shade_ancestor=parent;
+  for(int depth=0;depth<4&&shade_ancestor;depth++){
+   if(!strcmp((char*)(shade_ancestor+0xb0),"N_OutS_00"))shade_family=1;
+   shade_ancestor=*(uintptr_t*)(shade_ancestor+0x18);
+  }
+  if(shade_family&&(!strcmp(name,"P_BGSh_00")||!strcmp(name,"P_BGSh_01"))&&
+     fabsf(shade_width-1920.f)<.01f&&(fabsf(h-270.f)<.01f||fabsf(h-300.f)<.01f)){
+   acnh_ui_record *c=shade?shade:ui_record(p,ex>1.001f);
+   if(c){c->width=shade_width;c->last_width=shade_width*ex;
+    ui_write(p,0x50,c->last_width);c->valid=1;}
+   pthread_mutex_unlock(&ui_mutex);return;
+  }
   unsigned origin=(*(uint8_t*)(p+0x5b))&3;
   int side=(!strncmp(name,"P_L_",4)&&origin==2)||(!strncmp(name,"P_R_",4)&&origin==1);
-  if(side&&!strncmp((const char*)(parent+0xb0),"P_Circle_",9)&&isfinite(w)&&isfinite(h)&&w>=0&&h>0){
+  if(side&&(!strncmp((const char*)(parent+0xb0),"P_Circle_",9)||
+           !strcmp((const char*)(parent+0xb0),"P_SirclePattern_00"))&&isfinite(w)&&isfinite(h)&&w>=0&&h>0){
    acnh_ui_record *c=ui_record(p,fabsf(k-1.f)>.001f);
    float bw=c&&c->valid&&w==c->last_width?c->width:w;
    float ps=ui_float(parent,0x70),rs=ui_float(top,0x70);
@@ -172,6 +281,51 @@ static void ui_pane(uint64_t *r,int param) {
     ui_write(p,0x50,c->last_width);ui_write(p,0x54,c->last_height);c->valid=1;
     pthread_mutex_unlock(&ui_mutex);return;
    }
+  }
+  // The matching top/bottom fill rectangles may start at zero height.
+  // Extend their width independently from the round aperture's animation.
+  int circle_parent=!strncmp((char*)(parent+0xb0),"P_Circle_",9)||
+   !strcmp((char*)(parent+0xb0),"P_SirclePattern_00");
+  acnh_ui_record *fill=ui_record(p,0);
+  float fill_width=fill&&fill->valid&&w==fill->last_width?fill->width:w;
+  if(circle_parent&&(!strncmp(name,"P_B_",4)||!strncmp(name,"P_T_",4))&&
+     fabsf(fill_width-1980.f)<.01f&&h>=0){
+   float ps=ui_float(parent,0x70),rs=ui_float(top,0x70);
+   acnh_ui_record *c=fill?fill:ui_record(p,fabsf(k-1.f)>.001f);
+   if(c&&isfinite(ps)&&isfinite(rs)&&fabsf(ps)>1e-5f){
+    c->width=fill_width;c->last_width=fill_width+root->width*(ex-1.f)*fabsf(rs/ps);
+    ui_write(p,0x50,c->last_width);c->valid=1;
+   }
+   pthread_mutex_unlock(&ui_mutex);return;
+  }
+  // Interior entry/exit wipes comprise eight adjacent 240-unit lanes.
+  // Their 241/242-wide, 1301-high pictures cover the canvas with a one-unit
+  // overlap. Compensating the UI root without these lanes leaves black sides.
+  // Extend mesh widths and lane centres, retaining vertical animation and
+  // the separate P_Icon. Hotel layouts also nest a second picture per lane.
+  acnh_ui_record *wipe=ui_record(p,0);
+  float wipe_width=wipe&&wipe->interior_wipe&&w==wipe->last_width?wipe->width:w;
+  uintptr_t wipe_group=*(uintptr_t*)(parent+0x18);
+  int wipe_name=!strncmp(name,"P_Base_",7)&&strlen(name)==9&&
+   name[7]>='0'&&name[7]<='1'&&name[8]>='0'&&name[8]<='9'&&
+   (name[7]=='0'||name[8]<='5');
+  int wipe_parent=!strcmp((char*)(parent+0xb0),"N_All_00")||
+   (!strcmp((char*)(parent+0xb0),"N_Type_00")&&wipe_group&&
+    !strcmp((char*)(wipe_group+0xb0),"N_All_00"));
+  acnh_ui_record *wipe_parent_record=ui_record(parent,0);
+  int wipe_child=wipe_parent_record&&wipe_parent_record->interior_wipe;
+  if(wipe_name&&(wipe_parent||wipe_child)&&fabsf(h-1301.f)<.01f&&
+     (fabsf(wipe_width-241.f)<.01f||fabsf(wipe_width-242.f)<.01f)){
+   acnh_ui_record *c=wipe?wipe:ui_record(p,ex>1.001f);
+   if(c){
+    float tx=ui_float(p,0x30);
+    if(!c->interior_wipe||w!=c->last_width)c->width=w;
+    if(!c->interior_wipe||tx!=c->last_tx)c->tx=tx;
+    c->last_width=c->width*ex;c->last_tx=c->tx*ex;
+    ui_write(p,0x50,c->last_width);ui_write(p,0x30,c->last_tx);
+    c->interior_wipe=1;c->valid=1;
+   }
+   pthread_mutex_unlock(&ui_mutex);return;
   }
   // Storage's decorative header is only 1920x290, not a full-screen image.
   // Extend its mesh sideways and move it to the expanded top edge. Do not
@@ -194,6 +348,29 @@ static void ui_pane(uint64_t *r,int param) {
     c->storage_header=1;c->valid=1;
     pthread_mutex_unlock(&ui_mutex);return;
    }
+  }
+  // OrderList's frame pictures are decorative bands; each nested picture
+  // owns its own geometry. Widen both meshes, leaving the item/text siblings.
+  acnh_ui_record *frame=ui_record(p,0);
+  float frame_width=frame&&frame->valid&&w==frame->last_width?frame->width:w;
+  const char *frame_parent=(const char*)(parent+0xb0);
+  uintptr_t frame_grand=*(uintptr_t*)(parent+0x18);
+  uintptr_t frame_great=frame_grand?*(uintptr_t*)(frame_grand+0x18):0;
+  int frame_name=!strncmp(name,"P_FrameU_",9)||!strncmp(name,"P_FrameD_",9);
+  int frame_direct=frame_grand&&!strcmp((char*)(frame_grand+0xb0),"N_Position_00")&&
+   !strncmp(frame_parent,"N_InOut_",8);
+  int frame_nested=frame_great&&!strcmp((char*)(frame_great+0xb0),"N_Position_00")&&
+   !strncmp((char*)(frame_grand+0xb0),"N_InOut_",8)&&
+   (!strncmp(frame_parent,"P_FrameU_",9)||!strncmp(frame_parent,"P_FrameD_",9));
+  int order_frame=frame_name&&(frame_direct||frame_nested)&&
+   fabsf(frame_width-1920.f)<.01f&&(fabsf(h-80.f)<.01f||fabsf(h-180.f)<.01f);
+  int order_gradient=!strcmp(name,"P_Grad_00")&&!strcmp(frame_parent,"N_Position_00")&&
+   fabsf(frame_width-2000.f)<.01f&&fabsf(h-600.f)<.01f;
+  if(order_frame||order_gradient){
+   acnh_ui_record *c=frame?frame:ui_record(p,ex>1.001f);
+   if(c){c->width=frame_width;c->last_width=frame_width*ex;
+    ui_write(p,0x50,c->last_width);c->valid=1;}
+   pthread_mutex_unlock(&ui_mutex);return;
   }
   // Catalog / Nook Miles / ABD decorate their top and bottom with
   // screen-wide P_pict bands (320/430/500 high) under N_InOut groups.
@@ -227,7 +404,17 @@ static void ui_pane(uint64_t *r,int param) {
   }
   // Full-screen backgrounds get the inverse compensation, so the game image is never squeezed again.
   // Small map/phone/item panes are deliberately excluded.
-  int cover=w>=root->width*.9f&&h>=H*.9f&&w<root->width*1.4f&&h<H*1.4f&&fabsf(w/h-16.f/9.f)<.06f;
+  // Cast selection and its wipe deliberately overscan to 2000x1200,
+  // rather than 1920x1080. They are background art, not a 3D character pane.
+  // Preserve the existing size/type checks and identify these layout paths.
+  const char *cover_parent=(const char*)(parent+0xb0);
+  int cast_background=fabsf(w-2000.f)<.01f&&fabsf(h-1200.f)<.01f&&
+   (((!strcmp(name,"P_Base_00")||!strcmp(name,"P_MatchingBg_00"))&&
+     !strcmp(cover_parent,"N_InOut_00"))||
+    (!strcmp(name,"P_Base_00")&&!strcmp(cover_parent,"N_Bg_00"))||
+    (!strcmp(name,"P_Base_03")&&!strcmp(cover_parent,"N_BG_00")));
+  int cover=w>=root->width*.9f&&h>=H*.9f&&w<root->width*1.4f&&h<H*1.4f&&
+   (fabsf(w/h-16.f/9.f)<.06f||cast_background);
   acnh_ui_record *c=ui_record(p,cover);if(c&&cover){
    float sx=ui_float(p,0x48),sy=ui_float(p,0x4c);
    if(!c->valid||sx!=c->last_sx)c->sx=sx;
