@@ -1,7 +1,7 @@
 // UI-only layout adaptation; derives from the documented nn::ui2d pane ABI.
 // ACNHRecomp reference (MIT notice retained with this build).
 typedef struct {
- uintptr_t key,vtable;int root,valid,shifted,storage_header,interior_wipe,interior_capture_hidden,interior_capture_alpha;
+ uintptr_t key,vtable;char identity_name[24];int root,valid,shifted,corner_x,corner_y,storage_header,interior_wipe,interior_capture_hidden,interior_capture_alpha;
  float sx,last_sx,width,last_width,tx,last_tx,ty,last_ty;
  float sy,last_sy,height,last_height;
  float action_center,action_correction;
@@ -11,16 +11,47 @@ static pthread_mutex_t ui_mutex=PTHREAD_MUTEX_INITIALIZER;
 static acnh_ui_record *ui_record(uintptr_t p,int create) {
  unsigned slot=(unsigned)((p>>4)*2654435761u)&4095;
  for(unsigned n=0;n<4096;n++,slot=(slot+1)&4095){
-  acnh_ui_record *c=&ui_records[slot];if(c->key==p)return c;
-  if(!c->key){if(create)c->key=p;return create?c:NULL;}
+  acnh_ui_record *c=&ui_records[slot];
+  if(c->key==p){
+   // Game layouts reuse allocations. Do not carry a prior pane's shift flag
+   // into a new pane and incorrectly suppress its descendants' anchoring.
+   if(c->vtable!=*(uintptr_t*)p||memcmp(c->identity_name,(void*)(p+0xb0),24)){
+    memset(c,0,sizeof *c);c->key=p;c->vtable=*(uintptr_t*)p;
+    memcpy(c->identity_name,(void*)(p+0xb0),24);
+   }
+   return c;
+  }
+  if(!c->key){if(create){c->key=p;c->vtable=*(uintptr_t*)p;memcpy(c->identity_name,(void*)(p+0xb0),24);}return create?c:NULL;}
  }return NULL;
 }
 static float ui_float(uintptr_t p,int off){return fget((void*)(p+off));}
 static void ui_write(uintptr_t p,int off,float v){if(ui_float(p,off)!=v){fput((void*)(p+off),v);*(uint8_t*)(p+0x58)|=0x10;}}
+// The observation runs before this pane's matrix calculation. Parent global
+// matrices can still describe the prior animation frame, so derive the ratio
+// from current local scales instead. The common root scale cancels out.
+static float ui_parent_ratio(uintptr_t parent,uintptr_t top,int off){
+ float scale=1.f;
+ for(int depth=0;parent&&parent!=top&&depth<32;depth++,parent=*(uintptr_t*)(parent+0x18)){
+  float v=ui_float(parent,off);if(!isfinite(v)||fabsf(v)<1e-5f)return 0.f;scale*=v;
+ }
+ return parent==top&&isfinite(scale)&&fabsf(scale)>1e-5f?1.f/scale:0.f;
+}
+// Match an immediate ancestor chain, allowing a nested layout RootPane.
+static int ui_path(uintptr_t p,const char *path){
+ const char *end=path+strlen(path);
+ while(end>path&&p){
+  const char *start=end;while(start>path&&start[-1]!='/')start--;
+  size_t n=(size_t)(end-start);
+  if(n>=24||strlen((char*)(p+0xb0))!=n||memcmp((void*)(p+0xb0),start,n))return 0;
+  if(start==path)return 1;
+  p=*(uintptr_t*)(p+0x18);end=start-1;
+ }
+ return 0;
+}
 static void ui_pane(uint64_t *r,int param) {
  (void)param;static uintptr_t base; if(!base)base=main_base();uintptr_t p=r[0];if(!base||!p)return;
  float k=wanted()/(16.f/9.f),ex=fmaxf(1.f,k),ey=fmaxf(1.f,1.f/k);uintptr_t vt=*(uintptr_t*)p-base,parent=*(uintptr_t*)(p+0x18);
- int plain=vt==0x474d1f8||vt==0x4a85590,parts=vt==0x474d310;
+ int plain=vt==0x474d1f8||vt==0x4a85590||vt==0x4a860d8,parts=vt==0x474d310||vt==0x4a8f128;
  int picture=vt==0x474d418||vt==0x474de58||vt==0x4a87220;
  // Capture replays use their own Picture subclass in the live game.
  // Keep this type scoped to name balloons; it also draws unrelated UI captures.
@@ -28,6 +59,11 @@ static void ui_pane(uint64_t *r,int param) {
  const char *pane_name=(const char*)(p+0xb0);
  int balloon_text=parent&&!strcmp(pane_name,"T_Name_00")&&
   !strcmp((const char*)(parent+0xb0),"N_Rotate_00");
+ // The edit-mode plus label is a TextBox sibling of its background.
+ // Keep both in the same corner without scaling or moving unrelated text.
+ int interior_top_text=parent&&(vt==0x4a875b8||vt==0x474d7c8)&&
+  (!strcmp(pane_name,"T_Icon_01")||!strcmp(pane_name,"T_Icon_15")||!strcmp(pane_name,"T_Icon_21"))&&
+  !strncmp((char*)(parent+0xb0),"N_InOutRight_",13);
  int cursor=vt==0x4a8f128&&!strcmp((const char*)(p+0xb0),"L_Cursor_00");
  int pocket_drag=(parts||vt==0x4a8f128)&&!strcmp((const char*)(p+0xb0),"L_DragBtn_00");
  // Interior storage's capture pane replays screen pixels using the original
@@ -52,7 +88,7 @@ static void ui_pane(uint64_t *r,int param) {
   }
   pthread_mutex_unlock(&ui_mutex);return;
  }
- if(parent&&!plain&&!parts&&!picture&&!capture_picture&&!balloon_text&&!cursor&&!pocket_drag)return;
+ if(parent&&!plain&&!parts&&!picture&&!capture_picture&&!balloon_text&&!cursor&&!pocket_drag&&!interior_top_text)return;
  pthread_mutex_lock(&ui_mutex);
  if(!parent){
   acnh_ui_record *c=ui_record(p,fabsf(k-1.f)>.001f);if(!c){pthread_mutex_unlock(&ui_mutex);return;}
@@ -76,6 +112,139 @@ static void ui_pane(uint64_t *r,int param) {
   uintptr_t next=*(uintptr_t*)(top+0x18);if(!next)break;top=next;
  }
  acnh_ui_record *root=ui_record(top,0);if(!root||!root->root){pthread_mutex_unlock(&ui_mutex);return;}
+ // Translate final HUD groups, not their off-screen capture sources. The
+ // baseline is retained across repeated layout visits and animation writes.
+ // Names alone are not unique: pair them with the shipped pane dimensions
+ // and parent path. Descendants inherit the translation exactly once.
+ acnh_ui_record *hc=ui_record(p,0);
+ float hx=hc&&hc->valid&&ui_float(p,0x30)==hc->last_tx?hc->tx:ui_float(p,0x30);
+ float hy=hc&&hc->valid&&ui_float(p,0x34)==hc->last_ty?hc->ty:ui_float(p,0x34);
+ float hw=ui_float(p,0x50),hh=ui_float(p,0x54);
+ const char *pn=(const char*)(parent+0xb0);
+ int ax=hc?hc->corner_x:0,ay=hc?hc->corner_y:0;
+ if(!nested&&(plain||parts||picture||capture_picture||interior_top_text)){
+  // Interior, HHP and revisit layouts share these side guide containers.
+  // Move the whole side horizontally once; its children retain their own
+  // top/bottom vertical anchors when tablets reveal additional height.
+  int interior_parent=!strcmp(pn,"RootPane")||
+   (!strcmp(pn,"N_All_00")&&*(uintptr_t*)(parent+0x18)&&
+    !strcmp((char*)(*(uintptr_t*)(parent+0x18)+0xb0),"RootPane"))||
+   ((!strcmp(pn,"N_Type_00")||!strcmp(pn,"N_Type_01"))&&
+    *(uintptr_t*)(parent+0x18)&&
+    !strcmp((char*)(*(uintptr_t*)(parent+0x18)+0xb0),"RootPane"));
+  if(plain&&interior_parent){
+   if(!strncmp(pane_name,"N_InOutLeft_",12)){ax=-1;ay=0;}
+   if(!strncmp(pane_name,"N_InOutRight_",13)){ax=1;ay=0;}
+  }
+  if(!strncmp(pn,"N_GuideInOutJuji_",17)){
+   if((plain&&!strncmp(pane_name,"N_Share_",8))||
+      ((picture||capture_picture)&&!strcmp(pane_name,"P_CaptureShadow_01"))){ax=0;ay=1;}
+   if((plain&&(!strcmp(pane_name,"N_GuideMouse_00")||!strcmp(pane_name,"N_GuideStudio_01")))||
+      (parts&&(!strcmp(pane_name,"L_GuideMouse_00")||!strcmp(pane_name,"L_Amiibo_00")))){ax=0;ay=-1;}
+  }
+  if(!strncmp(pn,"N_InOutRight_",13)&&
+     ((plain&&(!strcmp(pane_name,"N_Normal_00")||!strcmp(pane_name,"N_Celing_00")||!strncmp(pane_name,"N_TypePlus_",11)))||
+      (picture&&!strcmp(pane_name,"P_KeyBase_03"))||interior_top_text)){ax=0;ay=1;}
+
+  if(!strcmp(pane_name,"N_InSaveDataSetting_00")&&hw==30&&hh==30&&
+     !strcmp(pn,"N_InOut_00")){ax=-1;ay=-1;}
+  if(!strcmp(pane_name,"N_Pos_00")&&!strcmp(pn,"L_Clock_00")){ax=-1;ay=-1;}
+  if((!strcmp(pane_name,"N_Pos_00")&&hw==30&&hh==40)||
+     (!strcmp(pane_name,"P_Base_00")&&hw==412&&hh==70)){
+   if(hx>850&&hy>850&&!strcmp(pn,"N_InOut_00")){ax=1;ay=1;}
+  }
+  if(!strncmp(pane_name,"N_InOut_",8)&&hw==30&&hh==40&&!strcmp(pn,"RootPane")&&
+     hx<-700&&hy>400){ax=-1;ay=1;}
+  if(!strcmp(pane_name,"N_InOut_01")&&hw==30&&hh==40&&
+     !strcmp(pn,"RootPane")&&hx>600&&hy<-200){ax=1;ay=-1;}
+  if(!strcmp(pane_name,"N_InOut_00")&&hw==30&&hh==40&&
+     (!strcmp(pn,"RootPane")||!strncmp(pn,"L_Tips_",7))&&hx==-870&&hy==-430){ax=-1;ay=-1;}
+  if(!strcmp(pn,"N_Icon_00")&&parts&&
+     (!strncmp(pane_name,"L_Island_",9)||!strncmp(pane_name,"L_Airplane_",11)||
+      !strncmp(pane_name,"L_Dream_",8)||!strncmp(pane_name,"L_CloudIsland_",14)||
+      !strncmp(pane_name,"L_Ship_",7)||!strncmp(pane_name,"L_Kpp_",6)||
+      !strncmp(pane_name,"L_Man_",6))&&hx>700&&hy<-300){ax=1;ay=-1;}
+  if(!strcmp(pane_name,"L_SaveLoadIcon_00")&&parts&&!strcmp(pn,"RootPane")){ax=1;ay=1;}
+  if(!strcmp(pane_name,"N_BU_00")&&hw==30&&hh==40&&
+     !strcmp(pn,"RootPane")&&hx==932&&hy==416){ax=1;ay=1;}
+  // Camera UI uses separate edge controls; do not move its centred frame,
+  // capture target, crosshair or photo composition overlays.
+  if(plain){
+   if(ui_path(p,"RootPane/N_InOut_00/N_Guide_00/N_GuideOff_00/N_Invalid_00/N_Filter_00")||
+      ui_path(p,"RootPane/N_InOut_00/N_Guide_00/N_GuideOff_00/N_Invalid_00/N_Frame")){ax=-1;ay=1;}
+   if(ui_path(p,"RootPane/N_InOut_00/N_Guide_00/N_GuideOff_00/N_Invalid_00/N_AppTypeF5_00")||
+      ui_path(p,"RootPane/N_InOut_00/N_Guide_00/N_GuideOff_00/N_Invalid_00/N_Look_00")||
+      ui_path(p,"RootPane/N_InOut_00/N_Guide_00/N_GuideOff_00/N_Invalid_00/N_Reaction_00/N_AllEmoticon_00")){ax=1;ay=1;}
+   if(ui_path(p,"RootPane/N_InOut_00/N_Date_00")&&hw==30&&hh==40){ax=1;ay=-1;}
+   if(ui_path(p,"RootPane/N_Root_00/N_InOut_01/N_Num_00")&&hw==30&&hh==40){ax=-1;ay=-1;}
+  }
+  if(parts&&ui_path(p,"RootPane/L_ReleasedInsectNum_00")){ax=-1;ay=1;}
+  if(parts&&!strcmp(pn,"N_All_00")){
+   if(!strcmp(pane_name,"L_Timer_00")){ax=0;ay=1;}
+   // Ordinary indoor play uses these MainScreen parts, independently of
+   // the Interior editor side groups. Anchor the complete replay group.
+   if(!strcmp(pane_name,"L_GuideRoom_00")||!strcmp(pane_name,"L_EffectClothGuide_00")||
+      !strcmp(pane_name,"L_NpcOnOffGuide_00")){ax=-1;ay=1;}
+   if(!strcmp(pane_name,"L_Road_00")||!strcmp(pane_name,"L_EffectCloth_00")||
+      !strcmp(pane_name,"L_Album_00")||!strcmp(pane_name,"L_AlbumHotel_00")){ax=1;ay=1;}
+   if(!strcmp(pane_name,"L_MealEf_00")){ax=-1;ay=1;}
+  }
+ }
+ // The in-game software keyboard uses the system L_Footer layout, not
+ // the game's N_Align_00 guide row. Anchor its packed edge group only;
+ // the keyboard keys and centred input balloon remain unchanged.
+ uintptr_t footer_root=*(uintptr_t*)(parent+0x18);
+ uintptr_t footer_part=footer_root?*(uintptr_t*)(footer_root+0x18):0;
+ if(!nested&&plain&&!strcmp(pn,"N_Pos_00")&&footer_root&&footer_part&&
+    !strcmp((char*)(footer_root+0xb0),"N_Root_00")&&
+    !strcmp((char*)(footer_part+0xb0),"L_Footer")){
+  if(!strcmp(pane_name,"N_Right")){ax=1;ay=-1;}
+  if(!strcmp(pane_name,"N_Left")){ax=-1;ay=-1;}
+ }
+ // Skip prompt: move its visible text and shadow replay together. Keep
+ // N_CaptureShadow_00 at its original render-to-texture coordinates.
+ if(!nested&&!strcmp(pn,"N_InOut_00")&&ui_float(parent,0x34)==475.f&&
+    ((plain&&!strcmp(pane_name,"N_Align_00")&&hw==1790&&hh==100)||
+     ((picture||capture_picture)&&!strcmp(pane_name,"P_CaptureShadow_00")&&hw==450&&hh==80))){ax=1;ay=1;}
+ if((ax||ay)&&!nested){
+  hc=ui_record(p,1);
+  float rx=ui_parent_ratio(parent,top,0x48),ry=ui_parent_ratio(parent,top,0x4c);
+  if(hc&&rx!=0.f&&ry!=0.f){
+   hc->tx=hx;hc->ty=hy;hc->corner_x=ax;hc->corner_y=ay;
+   hc->last_tx=hx+ax*root->width*.5f*(ex-1.f)*rx;
+   hc->last_ty=hy+ay*root->height*.5f*(ey-1.f)*ry;
+   ui_write(p,0x30,hc->last_tx);ui_write(p,0x34,hc->last_ty);
+   hc->valid=1;hc->shifted=(ax&&ex>1.001f)||(ay&&ey>1.001f);
+  }
+  pthread_mutex_unlock(&ui_mutex);return;
+ }
+ // Shared bottom guides are packed by game code, not a responsive layout
+ // manager. Move the final packed row as a unit; enlarging N_Align alone
+ // leaves the already positioned B/A/Y buttons at their original locations.
+ if(plain&&!strcmp(pane_name,"N_Align_00")&&hh==100&&
+    *(uintptr_t*)(parent+0x18)&&!strcmp((char*)(*(uintptr_t*)(parent+0x18)+0xb0),"RootPane")&&
+    ((!strcmp(pn,"N_InOut_00")&&ui_float(parent,0x34)==-540.f)||
+     (!strcmp(pn,"N_All_00")&&hy==-486.f))){
+  acnh_ui_record *c=ui_record(p,1);
+  float px=ui_parent_ratio(parent,top,0x48),py=ui_parent_ratio(parent,top,0x4c);
+  if(c&&hw==1810.f&&isfinite(px)&&isfinite(py)&&fabsf(px)>1e-5f&&fabsf(py)>1e-5f){
+   c->tx=hx;c->ty=hy;
+   c->last_tx=hx+root->width*.5f*(ex-1.f)*px;
+   c->last_ty=hy-root->height*.5f*(ey-1.f)*py;
+   ui_write(p,0x30,c->last_tx);ui_write(p,0x34,c->last_ty);c->valid=1;
+  }
+  pthread_mutex_unlock(&ui_mutex);return;
+ }
+ // School/room naming panels have a half-height header background. Extend
+ // only its art and paired overlay; input text and keycaps keep their scale.
+ if(picture&&hw==1920.f&&(hh==270.f||hh==540.f)&&
+    ((!strcmp(pane_name,"P_Base_00")&&!strcmp(pn,"N_Dialog_00"))||
+     (!strcmp(pane_name,"P_Base_01")&&!strcmp(pn,"P_Base_00")))){
+  acnh_ui_record *c=ui_record(p,1);
+  if(c){float sx=ui_float(p,0x48);if(!c->valid||sx!=c->last_sx)c->sx=sx;
+   c->last_sx=c->sx*ex;ui_write(p,0x48,c->last_sx);c->valid=1;}
+  pthread_mutex_unlock(&ui_mutex);return;
+ }
  // DAL/visitor loading screen: anchor the two decorative pattern groups
  // to the wider edges. Translate each group outward; never stretch its
  // white trim, flowers, arrows or the separate centred airline logo.
@@ -86,8 +255,8 @@ static void ui_pane(uint64_t *r,int param) {
  if((dal_left||dal_right)&&!strcmp((char*)(parent+0xb0),"N_Type_00")&&
     pattern_grand&&!strcmp((char*)(pattern_grand+0xb0),"N_InOut_00")&&pattern_great==top){
   acnh_ui_record *c=ui_record(p,ex>1.001f);
-  float ps=ui_float(parent,0x70),rs=ui_float(top,0x70);
-  if(c&&isfinite(ps)&&isfinite(rs)&&fabsf(ps)>1e-5f){
+  float ps=1.f,rs=ui_parent_ratio(parent,top,0x48);
+  if(c&&isfinite(ps)&&isfinite(rs)&&fabsf(ps)>1e-5f&&fabsf(rs)>1e-5f){
    float tx=ui_float(p,0x30);
    if(!c->valid||tx!=c->last_tx)c->tx=tx;
    c->last_tx=c->tx+(dal_right?1.f:-1.f)*root->width*.5f*(ex-1.f)*rs/ps;
@@ -273,8 +442,8 @@ static void ui_pane(uint64_t *r,int param) {
            !strcmp((const char*)(parent+0xb0),"P_SirclePattern_00"))&&isfinite(w)&&isfinite(h)&&w>=0&&h>0){
    acnh_ui_record *c=ui_record(p,fabsf(k-1.f)>.001f);
    float bw=c&&c->valid&&w==c->last_width?c->width:w;
-   float ps=ui_float(parent,0x70),rs=ui_float(top,0x70);
-   if(c&&isfinite(ps)&&isfinite(rs)&&fabsf(ps)>1e-5f){
+   float ps=1.f,rs=ui_parent_ratio(parent,top,0x48);
+   if(c&&isfinite(ps)&&isfinite(rs)&&fabsf(ps)>1e-5f&&fabsf(rs)>1e-5f){
     c->width=bw;c->last_width=bw+root->width*.5f*(ex-1.f)*fabsf(rs/ps);
     if(!c->valid||h!=c->last_height)c->height=h;
     c->last_height=c->height*ey;
@@ -290,9 +459,9 @@ static void ui_pane(uint64_t *r,int param) {
   float fill_width=fill&&fill->valid&&w==fill->last_width?fill->width:w;
   if(circle_parent&&(!strncmp(name,"P_B_",4)||!strncmp(name,"P_T_",4))&&
      fabsf(fill_width-1980.f)<.01f&&h>=0){
-   float ps=ui_float(parent,0x70),rs=ui_float(top,0x70);
+   float ps=1.f,rs=ui_parent_ratio(parent,top,0x48);
    acnh_ui_record *c=fill?fill:ui_record(p,fabsf(k-1.f)>.001f);
-   if(c&&isfinite(ps)&&isfinite(rs)&&fabsf(ps)>1e-5f){
+   if(c&&isfinite(ps)&&isfinite(rs)&&fabsf(ps)>1e-5f&&fabsf(rs)>1e-5f){
     c->width=fill_width;c->last_width=fill_width+root->width*(ex-1.f)*fabsf(rs/ps);
     ui_write(p,0x50,c->last_width);c->valid=1;
    }
@@ -338,8 +507,8 @@ static void ui_pane(uint64_t *r,int param) {
    ((fabsf(w-1920.f)<.01f&&fabsf(h-290.f)<.01f)||(header&&header->storage_header));
   if(storage_header){
    acnh_ui_record *c=header?header:ui_record(p,fabsf(k-1.f)>.001f);
-   float ps=ui_float(parent,0x84),rs=ui_float(top,0x84),ty=ui_float(p,0x34);
-   if(c&&isfinite(ps)&&isfinite(rs)&&fabsf(ps)>1e-5f){
+   float ps=1.f,rs=ui_parent_ratio(parent,top,0x4c),ty=ui_float(p,0x34);
+   if(c&&isfinite(ps)&&isfinite(rs)&&fabsf(ps)>1e-5f&&fabsf(rs)>1e-5f){
     if(!c->storage_header||w!=c->last_width)c->width=w;
     if(!c->storage_header||ty!=c->last_ty)c->ty=ty;
     c->last_width=c->width*ex;
@@ -401,6 +570,36 @@ static void ui_pane(uint64_t *r,int param) {
    acnh_ui_record *c=band?band:ui_record(p,ex>1.001f);
    if(c){c->width=band_width;c->last_width=band_width*ex;ui_write(p,0x50,c->last_width);c->valid=1;}
    pthread_mutex_unlock(&ui_mutex);return;
+  }
+  // Additional shipped full-width decorative meshes. Scope by exact path
+  // and original bounds; change geometry only, never child scale, opacity,
+  // capture masks, text or keyboard keycaps. Height and animation stay intact.
+  acnh_ui_record *strip=ui_record(p,0);
+  float strip_width=strip&&strip->valid&&w==strip->last_width?strip->width:w;
+  static const struct {const char *path;float width,height;} strips[]={
+   {"RootPane/N_InOut_02/P_MatchingModeBase_00",1920.0f,320.0f},
+   {"RootPane/N_InOut_01/P_Base_00",1920.0f,250.0f},
+   {"RootPane/N_InOut_01/P_Base_01",1920.0f,250.0f},
+   {"RootPane/N_FinishOut_00/N_TextInOut_00/N_TextType_01/P_BGShadow_00",1920.0f,540.0f},
+   {"RootPane/N_FinishOut_00/N_TextInOut_00/N_TextType_01/P_BGgradation_00",1920.0f,443.3333435058594f},
+   {"RootPane/N_Root_00/N_Pos_00/N_Bg/P_Bg_Black",1920.0f,108.0f},
+   {"RootPane/N_Root_00/N_Pos_00/N_Bg/P_Bg_Gray",1920.0f,108.0f},
+   {"RootPane/N_InOut_00/P_Base_00",1940.0f,320.0f},
+   {"RootPane/N_InOut_00/P_Base_01",1940.0f,360.0f},
+   {"RootPane/P_Base_00",1920.0f,600.0f},
+   {"RootPane/N_InOut_00/P_Bg_00",1920.0f,700.0f},
+   {"RootPane/N_InOut_00/P_Base_00",1920.0f,540.0f},
+   {"RootPane/N_InOut_02/P_Bg_01",1920.0f,700.0f},
+   {"RootPane/N_InOut_00/P_Base_00",1920.0f,200.0f},
+   {"RootPane/N_InOut_00/P_Base_01",1920.0f,200.0f},
+  };
+  for(unsigned i=0;i<sizeof strips/sizeof *strips;i++){
+   if(fabsf(strip_width-strips[i].width)<.01f&&fabsf(h-strips[i].height)<.01f&&ui_path(p,strips[i].path)){
+    acnh_ui_record *c=strip?strip:ui_record(p,ex>1.001f);
+    if(c){c->width=strip_width;c->last_width=strip_width*ex;
+     ui_write(p,0x50,c->last_width);c->valid=1;}
+    pthread_mutex_unlock(&ui_mutex);return;
+   }
   }
   // Full-screen backgrounds get the inverse compensation, so the game image is never squeezed again.
   // Small map/phone/item panes are deliberately excluded.

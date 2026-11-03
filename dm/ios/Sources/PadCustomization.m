@@ -6,15 +6,33 @@
 static NSString *editBase;
 static NSMutableDictionary *draft;
 static NSMutableDictionary *runtime;
-static NSString *storeKey(NSString *base){return [@"ACNH.CustomPad.v1." stringByAppendingString:base];}
+static NSMutableDictionary *drafts;
+static NSString *geometryVariant=@"";
+static NSString *storeKey(NSString *base){return pad_store_key(base,geometryVariant);}
+// Landscape keeps the existing saved layout. Portrait starts from its own
+// template and persists separately for iPad and hinge-capable devices.
+void acnh_pad_use_geometry(UIView *view){
+ NSString *variant=acnh_portrait_companion_active(view)?(acnh_has_hinge(view)?@".portrait.duo":@".portrait.ipad"):@"";
+ geometryVariant=variant;
+ if(editBase&&drafts){
+  if(!drafts[variant]){
+   NSDictionary *saved=[NSUserDefaults.standardUserDefaults dictionaryForKey:storeKey(editBase)];
+   NSMutableDictionary *next=[NSMutableDictionary dictionary];
+   for(id key in saved)if([key isKindOfClass:NSString.class]&&[saved[key] isKindOfClass:NSDictionary.class])next[key]=saved[key];
+   drafts[variant]=next;
+  }
+  draft=drafts[variant];
+ }
+}
 static NSString *baseChoice(void){const char *v=getenv("ACNH_CUSTOM_BASE");return v&&!strcmp(v,"generic")?@"generic":@"acnh";}
 BOOL acnh_pad_editing(void){return editBase!=nil;}
 BOOL acnh_pad_custom(NSString *base){if(editBase)return [editBase isEqual:base];const char *v=getenv("ACNH_CONTROLLER_LAYOUT");return v&&!strcmp(v,"custom")&&[baseChoice() isEqual:base];}
 static NSDictionary *values(NSString *base){
  if(!acnh_pad_custom(base))return nil;if(editBase)return draft;
  if(!runtime)runtime=[NSMutableDictionary dictionary];
- if(!runtime[base]){id saved=[NSUserDefaults.standardUserDefaults dictionaryForKey:storeKey(base)];runtime[base]=[saved isKindOfClass:NSDictionary.class]?saved:@{};}
- return runtime[base];
+ NSString *cacheKey=storeKey(base);
+ if(!runtime[cacheKey]){id saved=[NSUserDefaults.standardUserDefaults dictionaryForKey:storeKey(base)];runtime[cacheKey]=[saved isKindOfClass:NSDictionary.class]?saved:@{};}
+ return runtime[cacheKey];
 }
 static CGFloat number(id v,CGFloat fallback){return pad_number(v,fallback);}
 CGFloat acnh_pad_scale(NSString *base,NSString *key){return pad_scale(values(base),key);}
@@ -27,16 +45,17 @@ static NSString *L(NSString *en,NSString *zh){return [NSLocale.preferredLanguage
 @property NSString *base;
 @end
 @implementation PadLayoutEditor {
+ UIView *_gamePreview,*_lowerPreview;UILabel *_gameLabel,*_lowerLabel;BOOL _split;
  UIView<ACNHEditablePad> *_pad;NSMutableArray<UIButton *> *_handles;NSString *_selected;UILabel *_title;UISlider *_size;UIButton *_choose;UIView *_panel;CGPoint _panelOffset;
 }
 // The editor is a full-screen modal, so it must declare its own directions;
 // it does not inherit the landscape launcher's orientation policy.
 - (UIInterfaceOrientationMask)supportedInterfaceOrientations{
- return acnh_has_hinge(self.view)?UIInterfaceOrientationMaskAllButUpsideDown:UIInterfaceOrientationMaskLandscape;
+ return (self.traitCollection.userInterfaceIdiom==UIUserInterfaceIdiomPad||acnh_has_hinge(self.view))?UIInterfaceOrientationMaskAllButUpsideDown:UIInterfaceOrientationMaskLandscape;
 }
 - (UIInterfaceOrientation)preferredInterfaceOrientationForPresentation{
  UIInterfaceOrientation current=self.presentingViewController.view.window.windowScene.interfaceOrientation;
- if(acnh_has_hinge(self.presentingViewController.view)&&current!=UIInterfaceOrientationUnknown)return current;
+ if((self.traitCollection.userInterfaceIdiom==UIUserInterfaceIdiomPad||acnh_has_hinge(self.presentingViewController.view))&&current!=UIInterfaceOrientationUnknown)return current;
  return UIInterfaceOrientationIsLandscape(current)?current:UIInterfaceOrientationLandscapeRight;
 }
 - (BOOL)shouldAutorotate{return YES;}
@@ -50,9 +69,11 @@ static NSString *L(NSString *en,NSString *zh){return [NSLocale.preferredLanguage
 }
 - (void)viewDidLoad{
  [super viewDidLoad];self.view.backgroundColor=[UIColor colorWithRed:.05 green:.13 blue:.15 alpha:1];acnh_observe_display(self.view);
- editBase=self.base;draft=[NSMutableDictionary dictionary];
- NSDictionary *saved=[NSUserDefaults.standardUserDefaults dictionaryForKey:storeKey(self.base)];
- for(id key in saved)if([key isKindOfClass:NSString.class] && [saved[key] isKindOfClass:NSDictionary.class])draft[key]=saved[key];
+ editBase=self.base;drafts=[NSMutableDictionary dictionary];acnh_pad_use_geometry(self.view);
+ _gamePreview=[UIView new];_gamePreview.backgroundColor=UIColor.blackColor;_gamePreview.layer.cornerRadius=10;[self.view addSubview:_gamePreview];
+ _lowerPreview=[UIView new];_lowerPreview.backgroundColor=[UIColor colorWithWhite:.13 alpha:1];_lowerPreview.layer.cornerRadius=10;[self.view addSubview:_lowerPreview];
+ _gameLabel=[UILabel new];_gameLabel.text=L(@"Game screen · 16:9",@"游戏画面 · 16:9");_gameLabel.textColor=UIColor.lightGrayColor;_gameLabel.textAlignment=NSTextAlignmentCenter;[_gamePreview addSubview:_gameLabel];
+ _lowerLabel=[UILabel new];_lowerLabel.text=L(@"Lower screen · drag controls here",@"下屏 · 在此拖动按键");_lowerLabel.textColor=UIColor.lightGrayColor;_lowerLabel.textAlignment=NSTextAlignmentCenter;[_lowerPreview addSubview:_lowerLabel];
  _pad=(id)([self.base isEqual:@"generic"]?dm_generic_gamepad_view(self.view.bounds):dm_acnh_gamepad_preview(self.view.bounds));_pad.userInteractionEnabled=NO;[self.view addSubview:_pad];
  _handles=[NSMutableArray array];
  _panel=[UIView new];_panel.backgroundColor=[UIColor colorWithWhite:.08 alpha:.96];_panel.layer.cornerRadius=14;[self.view addSubview:_panel];
@@ -64,8 +85,12 @@ static NSString *L(NSString *en,NSString *zh){return [NSLocale.preferredLanguage
  [self rebuild];
 }
 - (void)viewDidLayoutSubviews{
- [super viewDidLayoutSubviews];_pad.frame=acnh_pad_frame(self.view);[_pad setNeedsLayout];[_pad layoutIfNeeded];
- CGFloat w=MIN(400,self.view.bounds.size.width-32),x=(self.view.bounds.size.width-w)/2,y=self.view.bounds.size.height-self.view.safeAreaInsets.bottom-110;
+ [super viewDidLayoutSubviews];_split=acnh_portrait_companion_active(self.view)||acnh_tabletop_active(self.view);
+ _gamePreview.hidden=_lowerPreview.hidden=!_split;
+ _gamePreview.frame=acnh_game_frame(self.view);_lowerPreview.frame=acnh_pad_frame(self.view);
+ _gameLabel.frame=_gamePreview.bounds;_lowerLabel.frame=CGRectMake(0,0,_lowerPreview.bounds.size.width,30);
+ _pad.frame=acnh_pad_frame(self.view);[_pad setNeedsLayout];[_pad layoutIfNeeded];
+ CGFloat w=MIN(400,self.view.bounds.size.width-32),x=(self.view.bounds.size.width-w)/2,y=_split?MAX(self.view.safeAreaInsets.top,CGRectGetMaxY(_gamePreview.frame)-110):self.view.bounds.size.height-self.view.safeAreaInsets.bottom-110;
  x=MAX(0,MIN(self.view.bounds.size.width-w,x+_panelOffset.x));y=MAX(self.view.safeAreaInsets.top,MIN(self.view.bounds.size.height-104,y+_panelOffset.y));
  _panel.frame=CGRectMake(x,y,w,104);_title.frame=CGRectMake(4,2,w-8,20);
  for(int i=0;i<3;i++)[_panel viewWithTag:100+i].frame=CGRectMake(i*w/3,72,w/3,30);
@@ -99,9 +124,9 @@ static NSString *L(NSString *en,NSString *zh){return [NSLocale.preferredLanguage
  // Keep the center fixed while resizing; the safe-area clamp is applied below.
  draft[_selected]=d;[self refresh];}
 - (void)resetLayout{[draft removeAllObjects];[self refresh];}
-- (void)finish{[_pad removeFromSuperview];_pad=nil;editBase=nil;draft=nil;[self dismissViewControllerAnimated:YES completion:nil];}
+- (void)finish{[_pad removeFromSuperview];_pad=nil;editBase=nil;draft=nil;drafts=nil;acnh_pad_use_geometry(self.presentingViewController.view);[self dismissViewControllerAnimated:YES completion:nil];}
 - (void)cancel{[self finish];}
-- (void)save{[NSUserDefaults.standardUserDefaults setObject:draft.copy forKey:storeKey(self.base)];runtime=nil;[self finish];}
+- (void)save{for(NSString *variant in drafts){NSString *key=pad_store_key(self.base,variant);[NSUserDefaults.standardUserDefaults setObject:[drafts[variant] copy] forKey:key];}runtime=nil;[self finish];}
 - (BOOL)prefersHomeIndicatorAutoHidden{return YES;}
 @end
 void dm_edit_pad_layout(void *parent,const char *base){

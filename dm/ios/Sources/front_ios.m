@@ -16,6 +16,11 @@ int front_ios_load_resources(const char *root);
 #include "dm.h"
 #include "haptics_apple.h"
 #include "save_sync.h"
+#include "companion.h"
+extern void *dm_companion_view_controller(void);
+extern void dm_companion_ui_state(int,int,int);
+// Companion touches are confined to their own view, not routed into game input.
+void dm_companion_ui_activity(int source,int busy){(void)source;(void)busy;}
 #import "CloudSaves.h"
 
 UIView *dm_gamepad_view(CGRect frame);
@@ -101,6 +106,7 @@ static BOOL tv_active(void);
 @property (nonatomic, strong) UIView *gameContainer;
 @property (nonatomic, strong) UIView *pad;
 @property (nonatomic, strong) DmGameView *miniMap;
+@property (nonatomic, strong) UIViewController *companion;
 @property (nonatomic, strong) UILabel *fps;
 @property (nonatomic,strong) UILabel *loadLabel;
 @property (nonatomic) BOOL preparing;
@@ -172,15 +178,28 @@ static void launcher_done(void) { [g_root startGame]; }
     if(tv_active()) {
         self.pad.frame=acnh_pad_frame(self.view);
         self.miniMap.hidden=YES;atomic_store(&g_minimap_enabled,0);
+        self.companion.view.hidden=YES;dm_companion_ui_state(1,0,0);
         acnh_wide_set_aspect(16.f/9.f);acnh_wide_set_present_full(0);
         return;
+    }
+    BOOL portrait=acnh_portrait_companion_active(self.view);
+    if(portrait&&!self.companion){
+        self.companion=CFBridgingRelease(dm_companion_view_controller());
+        [self addChildViewController:self.companion];
+        [self.view insertSubview:self.companion.view belowSubview:self.pad];
+        [self.companion didMoveToParentViewController:self];
+    }
+    if(self.companion){
+        self.companion.view.hidden=!portrait;
+        self.companion.view.frame=acnh_companion_frame(self.view);
+        dm_companion_ui_state(1,0,portrait && UIApplication.sharedApplication.applicationState==UIApplicationStateActive);
     }
     CGRect previous=self.pad.frame;
     CGRect viewport=acnh_game_viewport(self.view);
     self.gameContainer.frame=viewport;
     BOOL expand=acnh_expanded_view_active(self.view);
     acnh_wide_set_aspect(expand?viewport.size.width/viewport.size.height:16.f/9.f);
-    acnh_wide_set_present_full(expand||acnh_display_mode()==ACNH_DISPLAY_STRETCH);
+    acnh_wide_set_present_full(expand||(!portrait&&acnh_display_mode()==ACNH_DISPLAY_STRETCH));
     self.game.stretchPicture=NO; // Render into the native drawable; final GPU viewport controls presentation.
     self.game.frame=CGRectOffset(acnh_game_frame(self.view),-viewport.origin.x,-viewport.origin.y);
     static CGRect lastWideFrame;static int lastWideMode=-1;
@@ -189,19 +208,19 @@ static void launcher_done(void) { [g_root startGame]; }
         fprintf(stderr,"[ACNH display] iOS mode=%d expand=%d root=%.1fx%.1f viewport=%.1fx%.1f game=%.1f,%.1f %.1fx%.1f\n",lastWideMode,expand,self.view.bounds.size.width,self.view.bounds.size.height,viewport.size.width,viewport.size.height,self.game.frame.origin.x,self.game.frame.origin.y,self.game.frame.size.width,self.game.frame.size.height);
     }
     self.pad.frame=acnh_pad_frame(self.view);
-    BOOL tabletop=acnh_tabletop_active(self.view);
-    self.game.separateTouch=tabletop;
+    BOOL tabletop=acnh_tabletop_active(self.view)&&!portrait;
+    self.game.separateTouch=tabletop||portrait;
     CGRect lower=self.pad.frame;
     CGFloat mw=MIN(lower.size.width*.40,lower.size.height*.62*398./310.);
     self.miniMap.frame=CGRectMake(CGRectGetMidX(lower)-mw/2,CGRectGetMidY(lower)-mw*310./398./2,mw,mw*310./398.);
     self.miniMap.hidden=!tabletop;
     [self.miniMap setNeedsLayout];[self.miniMap layoutIfNeeded];
     atomic_store(&g_minimap_enabled,tabletop);
-    if(acnh_has_hinge(self.view)&&!CGRectEqualToRect(previous,self.pad.frame)){dm_gamepad_reset();[self.game resetScreenTouches];}
+    if(!CGRectEqualToRect(previous,self.pad.frame)){dm_gamepad_reset();[self.game resetScreenTouches];}
     [self.game setNeedsLayout];[self.pad setNeedsLayout];
     if (self.fps) {   // the top row's free stretch: right of DmGamepad.m's L3 key (102 + 17 of its units from the safe edge), level with − / + (22 units down); u is its unit
         CGRect s = acnh_has_hinge(self.view)?self.pad.frame:UIEdgeInsetsInsetRect(self.view.bounds,self.view.safeAreaInsets); CGFloat u = MIN((acnh_has_hinge(self.view)?s.size.height:self.view.bounds.size.height) / 430.0, 1.3);
-        self.fps.frame = CGRectMake(floor(CGRectGetMinX(s) + 130 * u), floor(CGRectGetMinY(s) + 22 * u - 11), 64, 22);
+        self.fps.frame = portrait?CGRectMake(CGRectGetMidX(viewport)-32,CGRectGetMinY(viewport)+8,64,22):CGRectMake(floor(CGRectGetMinX(s) + 130 * u), floor(CGRectGetMinY(s) + 22 * u - 11), 64, 22);
     }
 }
 - (void)viewWillTransitionToSize:(CGSize)size withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator {
@@ -243,7 +262,7 @@ static void launcher_done(void) { [g_root startGame]; }
 - (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
 - (UIRectEdge)preferredScreenEdgesDeferringSystemGestures { return UIRectEdgeAll; }   // Edge gestures need two swipes, to avoid accidental exits
 - (BOOL)prefersStatusBarHidden { return YES; }
-- (UIInterfaceOrientationMask)supportedInterfaceOrientations { return acnh_has_hinge(self.view)?UIInterfaceOrientationMaskAllButUpsideDown:UIInterfaceOrientationMaskLandscape; }
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations { return (acnh_has_hinge(self.view)||self.traitCollection.userInterfaceIdiom==UIUserInterfaceIdiomPad)?UIInterfaceOrientationMaskAllButUpsideDown:UIInterfaceOrientationMaskLandscape; }
 @end
 UIViewController *front_ios_root(void) { return [DmRootVC new]; }
 
@@ -361,7 +380,7 @@ void front_progress(const char *title, long done, long total) {
     });
 }
 void *front_metal_layer(void) { return (__bridge void *)g_layer; }
-void front_run(void (*guest)(void)) { guest(); }   // Already on main.m's big-stack thread
+void front_run(void (*guest)(void)) { dm_companion_host_ready();guest(); }   // Already on main.m's big-stack thread
 
 // Software keyboard: show a UIAlertController on the main thread, the calling thread waits for the result
 int front_text_input(const char *title, const char *sub, const char *guide, const char *initial, int max_chars, char *out, int out_cap) {
@@ -463,13 +482,13 @@ static void save_sync_background(void) {
 void front_ios_focus_event(int ev) {
     if (!g_layer) return;
     switch (ev) {
-        case 0: dm_gamepad_reset(); dm_focus_set(2); break;
-        case 1: UIApplication.sharedApplication.idleTimerDisabled = NO; dm_focus_set(3); g_audio_bg = 1; front_ios_audio_apply(); guest_clock_freeze_for(1, 1); dm_gfx_suspend(1); save_sync_background(); break;
+        case 0: dm_companion_ui_state(1,0,0); dm_gamepad_reset(); dm_focus_set(2); break;
+        case 1: dm_companion_ui_state(1,0,0); UIApplication.sharedApplication.idleTimerDisabled = NO; dm_focus_set(3); g_audio_bg = 1; front_ios_audio_apply(); guest_clock_freeze_for(1, 1); dm_gfx_suspend(1); save_sync_background(); break;
         case 2: dm_gfx_suspend(0); guest_clock_freeze_for(1, 0); front_ios_audio_session(); g_audio_bg = 0; front_ios_audio_apply(); dm_focus_set(2); break;
         case 3:   // Becoming active again also ends an interruption whose "ended" never came (not every one sends it), and retries a session that would not activate on the way back
             UIApplication.sharedApplication.idleTimerDisabled = YES;
             if (g_audio_intr) { LOG("audio session: active again with no interruption-ended notice; resuming"); g_audio_intr = 0; g_session_off = 1; }
             if (g_session_off) front_ios_audio_session();
-            front_ios_audio_apply(); dm_gamepad_active(); dm_focus_set(1); break;
+            front_ios_audio_apply(); dm_gamepad_active(); dm_focus_set(1); [g_root.view setNeedsLayout]; break;
     }
 }

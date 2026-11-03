@@ -1,3 +1,4 @@
+.DEFAULT_GOAL := dmhost
 # Game profile (dm/games/<id>/): the host is built for it (make GAME=base game title ID, required: there is no default game). game_profile.h is generated from game.tsv into gen/<id>/; the chain version header dmsh_chain.h (one for every game) lives in dm/gfx/nvn
 # without GAME only clean passes; anything else (a bare make too, whose default goal is the host) stops and lists the profiles
 ifeq ($(strip $(GAME)),)
@@ -20,6 +21,22 @@ CFLAGS=-O1 -g -Wall -Wno-unused-function -mmacosx-version-min=$(MACOS_MIN)
 SRC=main.c loader.c hle.c crash.c probe.c thread.c save_sync.c memstat.m haptics_apple.m $(sort $(wildcard hle_*.c)) front_mac.m entry.S
 SRC += caps_photo.m
 -include $(GAME_DIR)/sources.mk
+-include $(GAME_DIR)/companion.mk
+SRC += $(COMPANION_C)
+CXX_SRC=companion_apple.mm $(COMPANION_CXX)
+CXX_HEADERS=$(wildcard ../third_party/eden_duo/acnh/*.h ../third_party/eden_duo/acnh/*.inc ../third_party/eden_duo/acnh/third_party/*.h ../third_party/eden_duo/core/mods/*.h ../third_party/eden_duo/core/mods/modules/*.h ../third_party/eden_duo/bc_decoder/*.h ../third_party/eden_duo/stb/*.h ../third_party/zstd/*.h ../third_party/zstd/common/*.h ../third_party/zstd/decompress/*.h) companion.h companion_apple.h
+CXX_OBJ=$(foreach s,$(CXX_SRC),gen/companion/$(GAME)/$(notdir $(basename $(s))).o)
+CXX_LIB=gen/companion/$(GAME)/libcompanion.a
+COMPANION_DEFS=$(if $(COMPANION_CXX),-DDM_HAS_COMPANION=1,) -DZSTD_DISABLE_ASM=1 -DZSTD_LEGACY_SUPPORT=0
+define companion_object
+gen/companion/$(GAME)/$(notdir $(basename $(1))).o: $(1) $(CXX_HEADERS)
+	@mkdir -p $$(dir $$@)
+	clang++ -O2 -g -mmacosx-version-min=$(MACOS_MIN) -std=c++20 -fobjc-arc -ffp-contract=off -I../third_party/eden_duo $$(COMPANION_INCLUDES) $$(COMPANION_DEFS) -c $$< -o $$@
+endef
+$(foreach s,$(CXX_SRC),$(eval $(call companion_object,$(s))))
+$(CXX_LIB): $(CXX_OBJ)
+	ar rcs $@ $^
+
 # NVN null device + nn::vi + the Vulkan layer (dm/gfx/)
 # Sources under dm/gfx, dm/gfx/nvn, dm/gfx/tex, dm/gfx/vk and dm/gfx/gl are included by wildcard (tests/ and metal/ do not go into the host): adding a file does not touch this line
 GFX=$(sort $(wildcard ../gfx/*.c ../gfx/nvn/*.c ../gfx/nvn/*.m ../gfx/nvn/*.S ../gfx/tex/*.c ../gfx/tex/*.m ../gfx/vk/*.m ../gfx/gl/*.m))
@@ -65,8 +82,8 @@ endif
 endif
 .PHONY: FORCE
 FORCE:
-dmhost: $(SRC) $(GAME_SOURCE_DEPS) $(wildcard *.inc) $(GFX) ../third_party/stb_vorbis/stb_vorbis.c dm.h hle.h romfs_image.h save_sync.h dm_input.h pad_slots.h hle_haptics.h haptics_apple.h motion_fusion.h motion_apple.h motion_pro.h motion_pro_mac.h pad_apple.h pad_hid.h pad_hid_mac.h front.h $(GFX_H) $(GAME_H) $(GAME_STAMP) $(VPX_LIB) $(MSL_H)
-	clang $(CFLAGS) -I../gfx/nvn/include -I$(dir $(MSL_H)) -I../third_party/vulkan-headers/include -I$(dir $(GAME_H)) -I$(VPX) -I../third_party/stb_vorbis -fobjc-arc -o $@ $(SRC) $(GFX) $(VPX_LIB) -framework Cocoa -framework QuartzCore -framework Metal -framework MetalFX -framework GameController -framework CoreHaptics -framework IOKit -framework AudioToolbox -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework ImageIO -framework UniformTypeIdentifiers
+dmhost: $(CXX_LIB) $(SRC) $(GAME_SOURCE_DEPS) $(wildcard *.inc) $(GFX) ../third_party/stb_vorbis/stb_vorbis.c dm.h hle.h romfs_image.h save_sync.h dm_input.h pad_slots.h hle_haptics.h haptics_apple.h motion_fusion.h motion_apple.h motion_pro.h motion_pro_mac.h pad_apple.h pad_hid.h pad_hid_mac.h front.h $(GFX_H) $(GAME_H) $(GAME_STAMP) $(VPX_LIB) $(MSL_H)
+	clang $(CFLAGS) $(COMPANION_INCLUDES) $(COMPANION_DEFS) -I../gfx/nvn/include -I$(dir $(MSL_H)) -I../third_party/vulkan-headers/include -I$(dir $(GAME_H)) -I$(VPX) -I../third_party/stb_vorbis -fobjc-arc -o $@ $(SRC) $(GFX) $(VPX_LIB) $(CXX_LIB) -lc++ -framework Cocoa -framework QuartzCore -framework Metal -framework MetalFX -framework GameController -framework CoreHaptics -framework IOKit -framework AudioToolbox -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework ImageIO -framework UniformTypeIdentifiers
 clean:   # the host and everything make generates for it (gen/: the profile headers, the game stamp and the libvpx build; dmhost_* and *.dSYM beside them, as in .gitignore)
 	rm -rf gen dmhost dmhost_* *.dSYM
 .PHONY: clean

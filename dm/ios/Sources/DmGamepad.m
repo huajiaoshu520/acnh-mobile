@@ -97,7 +97,7 @@ static void pads_start(void);
  return self;
 }
 - (CGFloat)baseRadius:(int)b{
- CGFloat h=self.bounds.size.height;
+ CGFloat h=acnh_companion_controls_active(self)?MIN(self.bounds.size.height,self.bounds.size.width*9./16.):self.bounds.size.height;
  if(b==B_L_TOP)return MIN(20,MAX(14,h*.0324));
  if(b==B_A)return MAX(28,h*.074);
  if(b==B_RS)return MAX(24,h*.0565);
@@ -131,8 +131,8 @@ static void pads_start(void);
 }
 - (CGPoint)buttonCenter:(int)b{return acnh_pad_point(@"acnh",[NSString stringWithFormat:@"button.%d",b],[self defaultButtonCenter:b],self,[self radius:b]);}
 // Dedicated and its custom template use the original stick size.
-- (CGFloat)stickR{return MAX(38,self.bounds.size.height*.0944)*acnh_pad_scale(@"acnh",@"stick");}
-- (CGFloat)toolWheelR{return MAX(38,self.bounds.size.height*.0944)*.65;}
+- (CGFloat)stickR{return MAX(acnh_companion_controls_active(self)?28:38,(acnh_companion_controls_active(self)?MIN(self.bounds.size.height,self.bounds.size.width*9./16.):self.bounds.size.height)*.0944)*acnh_pad_scale(@"acnh",@"stick");}
+- (CGFloat)toolWheelR{return MAX(acnh_companion_controls_active(self)?28:38,(acnh_companion_controls_active(self)?MIN(self.bounds.size.height,self.bounds.size.width*9./16.):self.bounds.size.height)*.0944)*.65;}
 - (CGPoint)stickHome{return acnh_pad_point(@"acnh",@"stick",[self atX:.15625 y:.74074 radius:self.stickR],self,self.stickR);}
 - (NSArray<NSDictionary *> *)acnhEditableControls{
  NSMutableArray *out=[NSMutableArray array];
@@ -147,6 +147,11 @@ static void pads_start(void);
   if(normalized<best){best=normalized;hit=b;}
  }
  return hit;
+}
+// Only actual controls claim lower-panel touches; pages and their footer remain interactive.
+- (BOOL)pointInside:(CGPoint)p withEvent:(UIEvent *)event {
+ if(!acnh_companion_controls_active(self))return [super pointInside:p withEvent:event];
+ return [self buttonAt:p]>=0 || distance(p,self.stickHome)<=self.stickR*1.15 || distance(p,[self buttonCenter:B_RS])<=[self radius:B_RS]*1.15;
 }
 - (void)toolTick:(CADisplayLink *)link{[self recompute];}
 - (void)beginTool:(UITouch *)t button:(int)button{

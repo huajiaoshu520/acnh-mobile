@@ -1,5 +1,6 @@
 // Players and controllers (GitHub issue #74): the Mac front end's slot assignment (pad_slots.h) and the npads hle_hid.c reports for each player, docked and handheld, with the
 // game's supported npad ids; no controller, window or guest exists in this test (the hid take-overs are called directly, events are recorded by the stubs)
+#include <assert.h>
 #include <time.h>
 #include <unistd.h>
 #include <sched.h>
@@ -12,6 +13,9 @@ static int hid_usleep(useconds_t usec);
 #undef usleep
 #include "../pad_slots.h"
 
+#include "../hle_acnh_text.c"
+static module_t text_modules[1];module_t *g_mod=text_modules;int g_nmod=1;
+void *guest_sym(const char *name){(void)name;return NULL;}
 static int checks, fails, g_mode = 1, g_signals;
 static void *g_signalled;
 static time_t rumble_second = 1;
@@ -485,6 +489,17 @@ static void t_motion_hid(void) {
 }
 
 int main(void) {
+    strcpy(g_mod[0].name,"main");strcpy(g_mod[0].build_id,"ff1d1c05670db6021c85b624a710b963");
+    uint8_t keyboard[0x30*3]={0};uint16_t input[]={0x5b66,0x6821},got=0;
+    assert(dm_acnh_text_submit(input,2));h_hid_KbdState(keyboard);
+    assert(keyboard[16]&16);h_acnh_GetKeyCode(&got,4,0,0);assert(got==input[0]);
+    h_hid_KbdState(keyboard);assert(!(keyboard[16]&16));
+    motion_now+=170000000;memset(keyboard,0,sizeof keyboard);
+    assert(h_hid_KbdStates(keyboard,3)==3 && (keyboard[16]&16) && !keyboard[0x30+16]);
+    h_acnh_GetKeyCode(&got,4,0,0);assert(got==input[1]);
+    assert(h_hid_KbdStates(keyboard,0)==0);dm_acnh_text_cancel();
+
+
     CHECK(setenv("DM_RUMBLE_LOG", "1", 1) == 0, "enable rumble diagnostics");
     t_slots();
     t_npads();

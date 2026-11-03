@@ -1,5 +1,6 @@
 #import <UIKit/UIKit.h>
 BOOL acnh_pad_editing(void);
+void acnh_pad_use_geometry(UIView *view);
 BOOL acnh_pad_custom(NSString *base);
 CGFloat acnh_pad_scale(NSString *base, NSString *key);
 CGPoint acnh_pad_point(NSString *base, NSString *key, CGPoint original, UIView *view, CGFloat margin);

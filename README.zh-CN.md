@@ -1,8 +1,8 @@
 # ACNH Mobile
 
-**v0.3.99 · 构建 108，官方 Metal 4 版，要求 iOS 26 或更新系统。**
+**v0.3.109 · 构建 118，官方 Metal 4 版，要求 iOS 26 或更新系统。**
 
-新增动森专属实验性本地联机。LiveContainer + SideStore 用户需更新到本版附件的联机宿主包，并允许本地网络权限。[更新说明](docs/RELEASE-v0.3.99.zh-CN.md)。
+新增动森专属实验性本地联机。LiveContainer + SideStore 用户需更新到本版附件的联机宿主包，并允许本地网络权限。[更新说明](docs/RELEASE-v0.3.109.zh-CN.md)。
 本次 main 换用 NXNative 官方渲染核心与配套着色器翻译流程，基线为 `742c9fb83c3719674720ede99da6c1bc997904da`。保留原项目的图标按键、工具环、手柄、R 键和输入框唤起系统输入法，以及 `.data` 直读、事务存档、amiibo 文件导入、照片导出与震动反馈。启动页提供自定义控制器编辑，游戏内不增加打字工具栏。
 
 本版包含 Duo 半折叠辅助显示试验、音频启动布局恢复与提取工具地区兼容修复。保留着色器工具预检和手动重试、分组启动页、专属与自定义控制器、相册和输入法，现有 `.data` 继续使用。Duo 真机效果仍需测试。[更新说明](docs/RELEASE-v0.3.47.zh-CN.md)。
@@ -46,3 +46,9 @@ GitHub Actions 在 main 运行 **Validate and publish ACNH Mobile**，勾选 pub
 将自己的 DLC NSP 与本体、3.0.3 更新放在同一输入目录。一键工具调用官方提取器，并将 DLC 资源纳入着色器准备；两种 iOS 构建方式都会在 IPA 旁生成 `aoc` 文件夹。将整个 `aoc` 放入手机应用的 `Documents` 后重启；现有 `.data` 仍放在 `Documents/ACNHMobile`，无需因补充 DLC 重做。增加或移除 DLC 会使准备缓存失效，输出的 `aoc` 按完整集合替换，不合并旧文件；无 DLC 时输出空文件夹。Mac 应用构建会包含提取后的 DLC。游戏内容与 keys 不上传公开仓库。
 
 DLC 也可放在 `游戏目录/dlc/` 中，兼容 `DLC` 大写及其内部子目录；该目录只放 DLC，不放本体或更新，不扫描其他构建缓存目录。
+
+## 竖屏副屏（本地构建 118）
+
+iPad 竖屏及已识别的折叠设备竖屏，上方保留完整 16:9 游戏，下方提供地图、背包、图鉴、DIY、今日和 NookPhone 六页只读信息。触控按键位于下方，底部页面导航可直接点击。横屏或进入后台暂停副屏刷新。沿用现有外置 `.data`。iPad 和折叠 Duo 实机表现仍待验证。
+
+副屏参考 AnimalDuo / Eden Duo，保留 `dm/third_party/eden_duo` 中的 GPL-3.0-or-later 许可及署名；包含该副屏的组合发行遵循 GPL-3.0-or-later。NXNative 原文件保留其原许可声明。源码不附带游戏素材。

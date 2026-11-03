@@ -196,7 +196,7 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }   
 // ---- Layout (points; computed inside the safe area) ----
 - (CGRect)safe { return UIEdgeInsetsInsetRect(self.bounds, self.safeAreaInsets); }
 - (CGRect)corner { UIEdgeInsets i = self.safeAreaInsets; i.left *= K_CORNER_IN; i.right *= K_CORNER_IN; return UIEdgeInsetsInsetRect(self.bounds, i); }   // the rectangle the bottom-corner controls use
-- (CGFloat)u { return MIN(self.bounds.size.height / 430.0, 1.3); }   // 1 = 430 points tall (iPhone Pro Max landscape)
+- (CGFloat)u { return MIN((acnh_companion_controls_active(self)?MIN(self.bounds.size.height,self.bounds.size.width*9./16.):self.bounds.size.height) / 430.0, 1.3); }   // 1 = 430 points tall (iPhone Pro Max landscape)
 static CGPoint side(CGRect s, int right, CGFloat dx, CGFloat y) { return CGPointMake(right ? CGRectGetMaxX(s) - dx : CGRectGetMinX(s) + dx, y); }
 - (CGPoint)faceCenter { CGRect s = self.corner; CGFloat u = self.u; return side(s, 1, K_FACE_X * u, CGRectGetMaxY(s) - K_PAD_Y * u); }
 - (CGFloat)faceGap { return K_FACE_GAP * self.u; }
@@ -256,6 +256,12 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
     CGPoint h = [self stickCentre:i]; CGFloat dx = _stickNow[i].x - h.x, dy = _stickNow[i].y - h.y, d = hypot(dx, dy), R = [self stickR:i];
     if (d > R) { dx *= R / d; dy *= R / d; }
     return CGPointMake(dx, dy);
+}
+
+- (BOOL)pointInside:(CGPoint)p withEvent:(UIEvent *)event {
+ if(!acnh_companion_controls_active(self))return [super pointInside:p withEvent:event];
+ if(_padOff||_tap)return NO;
+ return [self btnAt:p]>=0 || [self inSwap:p] || [self faceAt:p] || dist(p,self.stickHome)<=[self stickR:0]*K_STICK_GRAB || (_full && (dist(p,self.dpadCenter)<=self.dpadR*K_DPAD_GRAB || ([self inRightArea:p] && p.y>self.bounds.size.height*.45)));
 }
 
 // ---- Touch ----

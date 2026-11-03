@@ -31,8 +31,8 @@ int main(void){
  bgObj[0]=base+0x474d418;*(uintptr_t*)(bp+0x18)=up;fput((void*)(bp+0x48),1);fput((void*)(bp+0x4c),1);fput((void*)(bp+0x50),1920);fput((void*)(bp+0x54),1080);r[0]=bp;ui_pane(r,0);assert(fabsf(ui_float(bp,0x48)*ui_float(up,0x48)-1)<1e-6f);
  groupObj[0]=base+0x474d1f8;*(uintptr_t*)(gp+0x18)=up;fput((void*)(gp+0x30),746);fput((void*)(gp+0x50),30);r[0]=gp;ui_pane(r,0);assert(ui_float(gp,0x30)==746);memcpy((void*)(gp+0xb0),"L_Island_00",12);ui_pane(r,0);float shifted=ui_float(gp,0x30);assert(shifted>746);ui_pane(r,0);assert(ui_float(gp,0x30)==shifted);
  uint64_t wipeParent[40]={0},sideObj[40]={0};uintptr_t wp=(uintptr_t)wipeParent,sp=(uintptr_t)sideObj;
- wipeParent[0]=base+0x474d1f8;*(uintptr_t*)(wp+0x18)=up;memcpy((void*)(wp+0xb0),"P_Circle_00",12);
- fput((void*)(wp+0x70),ui_float(up,0x70));
+ fput((void*)(wp+0x48),1);fput((void*)(wp+0x4c),1);wipeParent[0]=base+0x474d1f8;*(uintptr_t*)(wp+0x18)=up;memcpy((void*)(wp+0xb0),"P_Circle_00",12);
+ fput((void*)(wp+0x70),0); // Matrix not calculated yet.
  sideObj[0]=base+0x474d418;*(uintptr_t*)(sp+0x18)=wp;memcpy((void*)(sp+0xb0),"P_L_00",7);*(uint8_t*)(sp+0x5b)=0x12;
  fput((void*)(sp+0x50),1098);fput((void*)(sp+0x54),1080);fput((void*)(sp+0x48),1);r[0]=sp;ui_pane(r,0);
  float extended=1098+960*(uk-1);assert(fabsf(ui_float(sp,0x50)-extended)<.001f);assert(ui_float(sp,0x30)==0&&ui_float(sp,0x48)==1);
@@ -40,6 +40,63 @@ int main(void){
  acnh_wide_set_aspect(16.f/9.f);r[0]=up;ui_pane(r,0);r[0]=sp;ui_pane(r,0);assert(ui_float(sp,0x50)==1098);
  acnh_wide_set_aspect(16.f/9.f);r[0]=up;ui_pane(r,0);assert(ui_float(up,0x48)==1&&ui_float(up,0x50)==1920);
 
+ { // Real-layout corner fixtures: preserve scale/margins, avoid moving
+ // capture sources, remain idempotent, and restore original-mode positions.
+ uint64_t embeddedObj[40]={0},hudObj[40]={0},guideObj[40]={0},alignObj[40]={0};
+ uintptr_t hp=(uintptr_t)hudObj,kg=(uintptr_t)guideObj,ka=(uintptr_t)alignObj;
+ const struct {const char *name;float x,y,w,h;int ax,ay;} hud[]={
+  {"N_Pos_00",-800,-430,220,49.6f,-1,-1},
+  {"N_InOut_00",-930,580,30,40,-1,1},
+  {"N_InOut_01",800,-450,30,40,1,-1},
+  {"N_InOut_00",-870,-430,30,40,-1,-1},
+  {"L_SaveLoadIcon_00",900,480,82.492f,70.627f,1,1},
+  {"N_BU_00",932,416,30,40,1,1},
+  {"N_CaptureMain_00",-910,-416,600,300,0,0},
+  {"L_BtnPressA_00",0,10,600,920,0,0}
+ };
+ const float aspects[]={2868.f/1320.f,4.f/3.f};
+ for(unsigned a=0;a<4;a++)for(unsigned i=0;i<sizeof hud/sizeof *hud;i++){
+  memset(ui_records,0,sizeof ui_records);memset(hudObj,0,sizeof hudObj);
+  acnh_wide_set_aspect(16.f/9.f);fput((void*)(up+0x48),1);fput((void*)(up+0x4c),1);
+  fput((void*)(up+0x50),1920);fput((void*)(up+0x54),1080);
+  acnh_wide_set_aspect(aspects[a%2]);r[0]=up;ui_pane(r,0);
+  fput((void*)(up+0x70),ui_float(up,0x48));fput((void*)(up+0x84),ui_float(up,0x4c));
+  hudObj[0]=base+(hud[i].name[0]=='L'?(a>=2?0x4a8f128:0x474d310):0x474d1f8);
+  *(uintptr_t*)(hp+0x18)=up;
+  if(a>=2||i==0||i==3){
+   uintptr_t ep=(uintptr_t)embeddedObj;memset(embeddedObj,0,sizeof embeddedObj);
+   embeddedObj[0]=base+0x474d1f8;*(uintptr_t*)(ep+0x18)=up;
+   fput((void*)(ep+0x48),1);fput((void*)(ep+0x4c),1);
+   strcpy((char*)(ep+0xb0),i==0?"L_Clock_00":i==3?"L_Tips_00":"RootPane");
+   // Global matrices deliberately stale during the first animated frame.
+   fput((void*)(ep+0x70),0);fput((void*)(ep+0x84),0);
+   *(uintptr_t*)(hp+0x18)=ep;
+  }
+  strcpy((char*)(hp+0xb0),hud[i].name);
+  fput((void*)(hp+0x30),hud[i].x);fput((void*)(hp+0x34),hud[i].y);
+  fput((void*)(hp+0x50),hud[i].w);fput((void*)(hp+0x54),hud[i].h);
+  fput((void*)(hp+0x48),.93f);fput((void*)(hp+0x4c),.93f);
+  float ex=fmaxf(1,aspects[a%2]/(16.f/9.f)),ey=fmaxf(1,(16.f/9.f)/aspects[a%2]);
+  r[0]=hp;ui_pane(r,0);
+  float x=hud[i].x+hud[i].ax*960*(ex-1),y=hud[i].y+hud[i].ay*540*(ey-1);
+  assert(fabsf(ui_float(hp,0x30)-x)<.002f&&fabsf(ui_float(hp,0x34)-y)<.002f);
+  ui_pane(r,0);assert(fabsf(ui_float(hp,0x30)-x)<.002f);
+  assert(ui_float(hp,0x48)==.93f&&ui_float(hp,0x4c)==.93f);
+  acnh_wide_set_aspect(16.f/9.f);r[0]=up;ui_pane(r,0);
+  fput((void*)(up+0x70),1);fput((void*)(up+0x84),1);if(a>=2||i==0||i==3){fput((void*)((uintptr_t)embeddedObj+0x70),1);fput((void*)((uintptr_t)embeddedObj+0x84),1);}r[0]=hp;ui_pane(r,0);
+  assert(ui_float(hp,0x30)==hud[i].x&&ui_float(hp,0x34)==hud[i].y);
+ }
+ memset(ui_records,0,sizeof ui_records);acnh_wide_set_aspect(2868.f/1320.f);
+ r[0]=up;ui_pane(r,0);fput((void*)(up+0x70),ui_float(up,0x48));
+ guideObj[0]=base+0x474d1f8;alignObj[0]=base+0x4a860d8;*(uintptr_t*)(kg+0x18)=up;
+ *(uintptr_t*)(ka+0x18)=kg;strcpy((char*)(kg+0xb0),"N_InOut_00");strcpy((char*)(ka+0xb0),"N_Align_00");
+ fput((void*)(kg+0x48),1);fput((void*)(kg+0x4c),1);fput((void*)(kg+0x34),-540);fput((void*)(kg+0x70),ui_float(up,0x70));fput((void*)(kg+0x84),1);
+ fput((void*)(ka+0x50),1810);fput((void*)(ka+0x54),100);fput((void*)(ka+0x34),50);
+ r[0]=ka;ui_pane(r,0);float guideWidth=1810;float guideX=960*(uk-1);
+ assert(fabsf(ui_float(ka,0x50)-guideWidth)<.002f&&fabsf(ui_float(ka,0x30)-guideX)<.002f);ui_pane(r,0);assert(fabsf(ui_float(ka,0x50)-guideWidth)<.002f);
+ acnh_wide_set_aspect(16.f/9.f);r[0]=up;ui_pane(r,0);r[0]=ka;ui_pane(r,0);assert(ui_float(ka,0x50)==1810);
+ memset(ui_records,0,sizeof ui_records);fput((void*)(bp+0x48),1);fput((void*)(bp+0x4c),1);
+ }
  // Tablets retain horizontal FOV and reveal vertical scenery without stretching.
  const float tablets[]={4.f/3.f,2360.f/1640.f,2266.f/1488.f};
  for(unsigned i=0;i<sizeof tablets/sizeof *tablets;i++){
@@ -98,13 +155,13 @@ int main(void){
  uintptr_t sg=(uintptr_t)storageGroup,hp=(uintptr_t)headerParent,hd=(uintptr_t)headerPane;
  *(uintptr_t*)(sg+0x18)=up;strcpy((char*)(sg+0xb0),"N_Root_00");
  *(uintptr_t*)(hp+0x18)=sg;strcpy((char*)(hp+0xb0),"N_InOut_01");
- headerPane[0]=base+0x474d418;*(uintptr_t*)(hd+0x18)=hp;strcpy((char*)(hd+0xb0),"P_Header_00");
+ fput((void*)(sg+0x4c),1);fput((void*)(hp+0x4c),1);headerPane[0]=base+0x474d418;*(uintptr_t*)(hd+0x18)=hp;strcpy((char*)(hd+0xb0),"P_Header_00");
  fput((void*)(hd+0x50),1920);fput((void*)(hd+0x54),290);fput((void*)(hd+0x34),550);
  fput((void*)(hd+0x48),1);fput((void*)(hd+0x4c),1);
  const float headerAspects[]={2868.f/1320.f,4.f/3.f,2360.f/1640.f,16.f/9.f};
  for(unsigned i=0;i<sizeof headerAspects/sizeof *headerAspects;i++){
   acnh_wide_set_aspect(headerAspects[i]);r[0]=up;ui_pane(r,0);
-  fput((void*)(up+0x84),ui_float(up,0x4c));fput((void*)(hp+0x84),ui_float(up,0x4c));
+  fput((void*)(up+0x84),ui_float(up,0x4c));fput((void*)(hp+0x84),0); // Current local scale must govern placement.
   r[0]=hd;ui_pane(r,0);
   float kx=fmaxf(1,headerAspects[i]/(16.f/9.f)),ky=fmaxf(1,(16.f/9.f)/headerAspects[i]);
   assert(fabsf(ui_float(hd,0x50)-1920*kx)<.002);
@@ -473,7 +530,7 @@ int main(void){
  uint64_t dalIn[40]={0},dalType[40]={0},dalSide[2][40]={{0}};
  uintptr_t di=(uintptr_t)dalIn,dt=(uintptr_t)dalType;
  *(uintptr_t*)di=*(uintptr_t*)dt=base+0x4a85590;*(uintptr_t*)(di+0x18)=up;*(uintptr_t*)(dt+0x18)=di;
- strcpy((char*)(di+0xb0),"N_InOut_00");strcpy((char*)(dt+0xb0),"N_Type_00");
+ fput((void*)(di+0x48),1);fput((void*)(dt+0x48),1);strcpy((char*)(di+0xb0),"N_InOut_00");strcpy((char*)(dt+0xb0),"N_Type_00");
  for(int j=0;j<2;j++){
   uintptr_t q=(uintptr_t)dalSide[j];*(uintptr_t*)q=base+0x4a85590;*(uintptr_t*)(q+0x18)=dt;
   strcpy((char*)(q+0xb0),j?"N_PatternR_00":"N_PatternL_00");fput((void*)(q+0x30),j?940:-940);

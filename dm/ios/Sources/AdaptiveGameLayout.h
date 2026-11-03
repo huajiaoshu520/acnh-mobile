@@ -12,3 +12,8 @@ CGRect acnh_pad_frame(UIView *view);
 BOOL acnh_tabletop_active(UIView *view);
 CGPoint acnh_control_point(UIView *view,CGPoint point,CGFloat radius);
 CGFloat acnh_view_display_scale(UIView *view);
+
+BOOL acnh_portrait_companion_active(UIView *view);
+CGRect acnh_companion_frame(UIView *view);
+
+BOOL acnh_companion_controls_active(UIView *view);

@@ -11,3 +11,6 @@ static inline CGPoint pad_point(NSDictionary *layout,NSString *key,CGPoint p,CGR
  CGFloat mx=MIN(margin+2,safe.size.width/2),my=MIN(margin+2,safe.size.height/2);
  p.x=MAX(CGRectGetMinX(safe)+mx,MIN(CGRectGetMaxX(safe)-mx,p.x));p.y=MAX(CGRectGetMinY(safe)+my,MIN(CGRectGetMaxY(safe)-my,p.y));return p;
 }
+
+// Keep the original key for landscape; portrait layouts are device-specific.
+static inline NSString *pad_store_key(NSString *base,NSString *variant){return [[@"ACNH.CustomPad.v1." stringByAppendingString:base] stringByAppendingString:variant];}

@@ -41,7 +41,7 @@ targets:
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationLandscapeRight
           - UIInterfaceOrientationLandscapeLeft
-          - UIInterfaceOrientationPortrait   # Runtime controller permits this only on hinge-capable devices
+          - UIInterfaceOrientationPortrait   # Runtime controller permits portrait on iPad and hinge-capable devices
         UIRequiresFullScreen: true
         UIStatusBarHidden: true
         UIViewControllerBasedStatusBarAppearance: false
@@ -73,6 +73,8 @@ targets:
       TARGETED_DEVICE_FAMILY: "1,2"
       ENABLE_BITCODE: NO
       GCC_C_LANGUAGE_STANDARD: gnu11
+      CLANG_CXX_LANGUAGE_STANDARD: c++20
+      OTHER_CPLUSPLUSFLAGS: $(inherited) $(OTHER_CFLAGS)
       OTHER_CFLAGS: $(inherited) -mcpu=apple-a18   # The host assembly contains LSE atomic instructions, which the default baseline does not accept
       CLANG_ENABLE_OBJC_ARC: YES
       SWIFT_OBJC_BRIDGING_HEADER: Sources/DmIOS-Bridging-Header.h

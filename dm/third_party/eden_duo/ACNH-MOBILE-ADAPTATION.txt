@@ -1,0 +1,3 @@
+Portrait companion adapted from ShawndYang/AnimalDuo for ACNH Mobile, 2026-11-03.
+Read-only six-page companion; existing .data resource reader and existing controls retained.
+Original licenses and attribution retained. Combined distribution is GPL-3.0-or-later.

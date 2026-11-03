@@ -1,0 +1,28 @@
+Eden Duo companion integration for nxnative
+
+The original ACNH interface manifest (acnh/manifest.json) is from the same
+companion package, together with its authored flavor strings (losslessly converted to UTF-8 JSON; original hashes in flavor/PROVENANCE.txt), and is rendered by EdenCompanion.swift on Apple platforms.
+The ACNH native module is from igawa6/eden-duo-companions, native/modules.
+The portable C ABI headers and BC decoder are from igawa6/eden-duo.
+Exact upstream commits are recorded in UPSTREAM.json.
+
+ACNH module and ABI headers: GPL-3.0-or-later; see LICENSE-GPL-3.0.txt.
+BC decoder: MPL-2.0; see LICENSE-MPL-2.0.txt and the original file notices.
+stb_image and stb_truetype: MIT or public domain; see LICENSE-STB.txt and
+the original notices in each header.
+Zstandard v1.5.7: BSD license, in ../zstd/LICENSE.
+The original nxnative sources retain their MIT copyright notices.
+
+Apple adapter, portrait layout, SwiftUI presentation, build integration and
+validation tests were added for this build. The ACNH bag implementation
+(acnh_bag.h, acnh_bag.cpp, acnh_bag_live.cpp and acnh_bag_pins.inc) was
+modified on 2026-10-29 to add guarded moves, stable sorting and native
+command-menu actions. acnh_ui_art.cpp and acnh_font.cpp add bounded native
+label rendering and the ParkExt fallback for Apple Canvas on 2026-10-29.
+Original copyright and license notices are retained. No extracted game images are added to this source directory.
+All companion pictures, names and island information come from the user's
+own running game and RomFS.
+
+The companion-enabled combined build is supplied with its corresponding
+source archive and build instructions under GPL-3.0-or-later, preserving
+the original notices and the licenses of its component source files.

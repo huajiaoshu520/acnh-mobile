@@ -1,0 +1,18 @@
+Authored companion UI strings from AnimalDuo, converted losslessly from MSBT to UTF-8 JSON for source review. Not game-extracted text. Original file SHA256 values:
+{
+  "EUen.msbt": "0dc93f5603c271d1f90a0b0296001171cb09f6080452abc48cf949c0604fa3d6",
+  "EUit.msbt": "5b229eb885a254938ed9fcc6a346ec36fa740a5ae1968c64d7fd20151621cae7",
+  "JPja.msbt": "324715fc39ac628a79acb08a2a8d804a730f4508e0f7675a8bfec9664f861bb5",
+  "USes.msbt": "40f4478cd0d93a0836a5781b9a47903e27d2511805cac6fc6cbe37ef8d5f8cb0",
+  "EUru.msbt": "2231ff0c2eda44fac658abbe049b2b96f21f1b43e6122ec697f37cd77b0317a5",
+  "EUde.msbt": "422dab73f7d8504c94b38e1d0e13920bd7aae53e00bbe5e33d920b8012971122",
+  "EUnl.msbt": "6f5a59c351f71f50f80b4c0c534f6b97fd0b7f9450ab5b5aadd4b22a91bc066a",
+  "{REGION}{LANG}.msbt": "0dc93f5603c271d1f90a0b0296001171cb09f6080452abc48cf949c0604fa3d6",
+  "USfr.msbt": "9ed5e120afc8de54ea73d4cffc14ff31f481cad1a43eb7adf22854dca064ee5f",
+  "CNzh.msbt": "a3004a4583859a4fd9954950e3b3eb4b5b888ec30c9b32cc26a0b241133230c2",
+  "EUes.msbt": "5bee9bdd06019908f5cf0e2257c8ce801a4dffcbeda40763117bba1c7ffb322e",
+  "KRko.msbt": "82bae5b8c6638490d443c91a5f85a1f441e0e93455f7c3d46ddce6a4cae5aaa3",
+  "TWzh.msbt": "85d89daf69424e27ddce13e7a2361a94df701ef2bdf739ff287521f77a2227c7",
+  "USen.msbt": "0dc93f5603c271d1f90a0b0296001171cb09f6080452abc48cf949c0604fa3d6",
+  "EUfr.msbt": "5dd9050714d81cfbc8d9fd261d36466200a16b851d3bd1d58a656d0c214a1311"
+}

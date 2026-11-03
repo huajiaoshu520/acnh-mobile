@@ -1,6 +1,8 @@
 #import "AdaptiveGameLayout.h"
+#import "PadCustomization.h"
 #import <objc/runtime.h>
 #include <stdlib.h>
+#include "companion_layout.h"
 static char hingeKey,observerKey,partialKey;
 BOOL acnh_has_hinge(UIView *view) {
  return [objc_getAssociatedObject(view.window.windowScene,&hingeKey) boolValue];
@@ -22,15 +24,37 @@ static BOOL tabletop(UIView *view,CGRect *upper,CGRect *lower) {
  return NO;
 }
 BOOL acnh_tabletop_active(UIView *view) { CGRect top,bottom;return tabletop(view,&top,&bottom); }
+// Portrait companion uses the safe visible display, including a folded outer screen.
+BOOL acnh_portrait_companion_active(UIView *view) {
+ CGRect b=UIEdgeInsetsInsetRect(view.bounds,view.safeAreaInsets);
+ return (view.traitCollection.userInterfaceIdiom==UIUserInterfaceIdiomPad||acnh_has_hinge(view)) && b.size.height>b.size.width && b.size.width>0;
+}
+BOOL acnh_companion_controls_active(UIView *view) {
+ UIViewController *controller=view.window.rootViewController;
+ while(controller.presentedViewController)controller=controller.presentedViewController;
+ UIView *root=controller.view;return root && acnh_portrait_companion_active(root);
+}
+CGRect acnh_companion_frame(UIView *view) {
+ if(!acnh_portrait_companion_active(view))return CGRectZero;
+ CGRect top,bottom;if(tabletop(view,&top,&bottom))return bottom;
+ CGRect b=UIEdgeInsetsInsetRect(view.bounds,view.safeAreaInsets);
+ CGFloat height=b.size.width*9./16.;
+ return CGRectMake(b.origin.x,b.origin.y+height,b.size.width,MAX(0,b.size.height-height));
+}
 int acnh_display_mode(void) { return acnh_display_mode_value(getenv("ACNH_DISPLAY_MODE")); }
 CGRect acnh_game_viewport(UIView *view) {
  CGRect top,bottom;
  if(tabletop(view,&top,&bottom))return top;
+ if(acnh_portrait_companion_active(view)) {
+  CGRect b=UIEdgeInsetsInsetRect(view.bounds,view.safeAreaInsets);
+  b.size.height=b.size.width*9./16.;return b;
+ }
  CGRect b=view.bounds;
  if(acnh_has_hinge(view))b=UIEdgeInsetsInsetRect(b,view.safeAreaInsets);
  return b;
 }
 BOOL acnh_expanded_view_active(UIView *view) {
+ if(acnh_portrait_companion_active(view))return NO;
  CGRect b=acnh_game_viewport(view);
  UIUserInterfaceIdiom idiom=view.traitCollection.userInterfaceIdiom;
  return acnh_expanded_view_eligible(idiom==UIUserInterfaceIdiomPhone?1:idiom==UIUserInterfaceIdiomPad?2:0,
@@ -38,10 +62,15 @@ BOOL acnh_expanded_view_active(UIView *view) {
 }
 
 CGRect acnh_game_frame(UIView *view) {
+ if(acnh_portrait_companion_active(view))return acnh_fit_game(acnh_game_viewport(view));
  if(acnh_expanded_view_active(view))return acnh_game_viewport(view);
  return acnh_display_frame(acnh_game_viewport(view),acnh_display_mode());
 }
 CGRect acnh_pad_frame(UIView *view) {
+ acnh_pad_use_geometry(view);
+ if(acnh_portrait_companion_active(view)){
+  CGRect lower=acnh_companion_frame(view);lower.size.height-=dm_companion_footer_height(lower.size);return lower;
+ }
  CGRect top,bottom;
  if(tabletop(view,&top,&bottom))return bottom;
  return acnh_has_hinge(view)?acnh_fit_game(acnh_game_viewport(view)):view.bounds;
