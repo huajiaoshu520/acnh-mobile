@@ -1,6 +1,8 @@
 # ACNH Mobile
 
-**0.3.112 · build 121 — official Metal 4 edition, iOS 26+.**
+**0.3.113 · build 122 — official Metal 4 edition, iOS 26+.**
+
+Startup → Personalization includes Game volume (0–100%, default 100%). Game audio mixes with background music; the silent-mode playback preference is retained.
 
 Optional iCloud Drive save sharing is available in the iPhone and Mac launchers; choose the same folder on both devices. Replaced saves are backed up locally.
 

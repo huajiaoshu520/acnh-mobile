@@ -8,6 +8,7 @@
 #include <dispatch/dispatch.h>
 #include <stdatomic.h>
 #include <unistd.h>
+#include <math.h>
 
 enum { FMT_PCM16 = 2, STATE_STARTED = 0, STATE_STOPPED = 1, RATE = 48000 };
 enum { BK_NONE, BK_AU, BK_NULL };   // what is consuming an output's queue right now (aout.backend)
@@ -20,6 +21,7 @@ typedef struct {
     pthread_mutex_t m;
     void *event;                       // Guest SystemEvent: signaled whenever a buffer is released
     int ch;
+    float master_gain;                // Launcher volume, fixed before callbacks start; independent of guest AudioOut volume
     _Atomic int state;
     _Atomic uint32_t vol;              // SetAudioOutVolume gain as float bits (1.0 at open), applied to the samples as they are pulled
     gbuf *q[QMAX]; _Atomic uint32_t q_head, q_tail;       // Pending: written by the game side, read by the output side
@@ -126,7 +128,7 @@ static void pull(aout *a, uint8_t *dst, uint64_t n) {
 // Core Audio's own 6 → 2 mapping keeps only the front pair, so voices on the center (Luigi's Mansion 3) and the back channels were silent. The queue still takes all six guest channels,
 // in blocks through a stack buffer (no allocation in the real-time callback)
 static int device_channels(const aout *a) { return a->ch == 6 ? 2 : a->ch; }
-static void pull_device(aout *a, uint8_t *dst, uint64_t bytes) {
+static void pull_device_unscaled(aout *a, uint8_t *dst, uint64_t bytes) {
     if (a->ch != 6) { pull(a, dst, bytes); return; }
     enum { BLOCK = 128, CF = 32768, CC = 23167, CL = 8224, CB = 23167 };
     int16_t scratch[BLOCK * 6], *out = (int16_t *)dst;
@@ -144,6 +146,24 @@ static void pull_device(aout *a, uint8_t *dst, uint64_t bytes) {
         }
         frames -= n;
     }
+}
+
+// Apply the user's volume after the guest gain and surround downmix. Muting
+// still consumes/releases buffers; no environment lookup or allocation occurs in the callback.
+static void pull_device(aout *a, uint8_t *dst, uint64_t bytes) {
+    pull_device_unscaled(a, dst, bytes);
+    if (a->master_gain == 1.f) return;
+    int16_t *samples = (int16_t *)dst;
+    for (uint64_t i = 0; i < bytes / sizeof *samples; i++)
+        samples[i] = (int16_t)(samples[i] * a->master_gain);
+}
+static float launcher_audio_gain(void) {
+    const char *value = getenv("ACNH_AUDIO_VOLUME");
+    if (!value || !*value) return 1.f;
+    char *end;
+    float gain = strtof(value, &end);
+    if (end == value || *end || !isfinite(gain)) return 1.f;
+    return gain < 0.f ? 0.f : gain > 1.f ? 1.f : gain;
 }
 
 static _Atomic uint64_t g_render_calls;   // Cumulative sound card callbacks (lifecycle verification: must keep growing after resume)
@@ -350,6 +370,7 @@ static Result au_open_at(void *g, void *ev, const char *name, const uint8_t *par
     if (rate && rate != RATE) die("AudioOut sample rate %d not supported (48 kHz only)", rate);
     aout *a = calloc(1, sizeof *a);
     pthread_mutex_init(&a->m, NULL); a->event = ev; a->ch = ch;
+    a->master_gain = launcher_audio_gain();
     atomic_init(&a->state, STATE_STOPPED); atomic_init(&a->vol, 0x3f800000u);
     atomic_init(&a->q_head, 0); atomic_init(&a->q_tail, 0);
     atomic_init(&a->rel_head, 0); atomic_init(&a->rel_tail, 0);

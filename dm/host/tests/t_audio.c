@@ -19,6 +19,30 @@ void dm_host_helper_qos(qos_class_t q) { (void)q; }   // hle_thread.c: the helpe
 // Exercise the actual device callback, not just a mixing helper. A stereo
 // device must hear every channel of a 5.1 guest buffer and release the complete
 // six-channel buffers at the same frame count, including a split inside a block.
+static int test_launcher_volume(void) {
+    const char *values[] = {"0", "0.5", "1", "-2", "2", "nan", "inf", "bad", "0.5oops", ""};
+    const float gains[] = {0, .5f, 1, 0, 1, 1, 1, 1, 1, 1};
+    for (unsigned t = 0; t < sizeof gains / sizeof *gains; t++) {
+        setenv("ACNH_AUDIO_VOLUME", values[t], 1);
+        float gain = launcher_audio_gain();
+        if (gain != gains[t]) return printf("FAIL launcher volume parse %s\n", values[t]), 1;
+        int16_t in[] = {20000, -20000}, out[4];
+        gbuf b = {in, sizeof in, sizeof in};
+        aout a = {.ch = 2, .master_gain = gain};
+        atomic_init(&a.state, STATE_STARTED);
+        atomic_init(&a.vol, 0x3f000000u); // Game volume 50%, independent of launcher gain.
+        a.q[0] = &b; atomic_init(&a.q_tail, 1);
+        AudioBufferList bl = {.mNumberBuffers = 1, .mBuffers = {{2, sizeof out, out}}};
+        au_render(&a, NULL, NULL, 0, 2, &bl);
+        if (out[0] != (int16_t)(10000 * gain) || out[1] != (int16_t)(-10000 * gain) || out[2] || out[3] ||
+            atomic_load(&a.rel_tail) != 1 || atomic_load(&a.vol) != 0x3f000000u)
+            return printf("FAIL launcher volume PCM/release %s\n", values[t]), 1;
+    }
+    unsetenv("ACNH_AUDIO_VOLUME");
+    if (launcher_audio_gain() != 1.f) return 1;
+    return 0;
+}
+
 static int test_surround_output(void) {
     enum { FRAMES = 273, SPLIT = 17 };
     const int16_t expected[8][2] = {
@@ -31,7 +55,7 @@ static int test_surround_output(void) {
             in[f * 6 + ch] = test < 6 ? (test == ch ? 10000 : 0) : test == 6 ? 32767 : -32768;
         memset(out, 0xa5, sizeof out);
         gbuf b[2] = {{in, SPLIT * 12, SPLIT * 12}, {in + SPLIT * 6, (FRAMES - SPLIT) * 12, (FRAMES - SPLIT) * 12}};
-        aout a = {.ch = 6};
+        aout a = {.ch = 6, .master_gain = 1.f};
         atomic_init(&a.state, STATE_STARTED); atomic_init(&a.vol, 0x3f800000u);
         a.q[0] = b; a.q[1] = b + 1; atomic_init(&a.q_tail, 2);
         AudioBufferList bl = {.mNumberBuffers = 1, .mBuffers = {{2, sizeof out, out}}};
@@ -79,7 +103,7 @@ static int test_output_lifetime(void) {
     return 0;
 }
 int main(void) {
-    if (test_surround_output() || test_output_lifetime()) return 1;
+    if (test_launcher_volume() || test_surround_output() || test_output_lifetime()) return 1;
     char out[64], ev[64]; uint8_t prm[16]; gbuf b[3]; static int16_t pcm[3][4800 * 2];
     h_au_InitParam(prm);
     if (h_au_Open(out, ev, NULL, prm)) return 1;

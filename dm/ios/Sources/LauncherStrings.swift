@@ -10,7 +10,7 @@ enum LauncherText {
     }
     // Shared by the Mac and iPhone views; UI language never follows DM_LANG.
     static func label(env: String, fallback: String, language: String = Locale.preferredLanguages.first ?? "en") -> String {
-        let names = ["DM_PRESENT_UPSCALE": "画面放大", "DM_RUMBLE_MIN": "震动阈值", "DM_DYNAMIC_RESOLUTION": "动态分辨率", "DM_PSO_MTL4": "Metal 4 管线", "DM_PSO_PREBUILD": "管线预构建", "DM_NVN_ENC_THREAD": "编码线程", "DM_FPS_HOLD": "延迟时保持帧", "DM_PRESENT_SNAP": "帧缓冲", "DM_RUMBLE": "游戏震动", "DM_RUMBLE_GAIN": "震动强度", "DM_TOUCH_HAPTICS": "触屏反馈", "ACNH_CUSTOM_BASE": "调整对象", "ACNH_AUDIO_IGNORE_SILENT": "静音模式下播放声音", "ACNH_CONTROLLER_LAYOUT": "控制器布局", "DM_FPS_TARGET": "帧率", "DM_RENDER_SCALE": "渲染比例", "DM_OPMODE": "运行模式", "DM_LANG": "游戏语言", "DM_SHOW_FPS": "显示帧率", "DM_METAL_HUD": "性能信息面板", "DM_FULLSCREEN": "显示模式", "ACNH_DISPLAY_MODE": "画面显示"]
+        let names = ["DM_PRESENT_UPSCALE": "画面放大", "DM_RUMBLE_MIN": "震动阈值", "DM_DYNAMIC_RESOLUTION": "动态分辨率", "DM_PSO_MTL4": "Metal 4 管线", "DM_PSO_PREBUILD": "管线预构建", "DM_NVN_ENC_THREAD": "编码线程", "DM_FPS_HOLD": "延迟时保持帧", "DM_PRESENT_SNAP": "帧缓冲", "DM_RUMBLE": "游戏震动", "DM_RUMBLE_GAIN": "震动强度", "DM_TOUCH_HAPTICS": "触屏反馈", "ACNH_CUSTOM_BASE": "调整对象", "ACNH_AUDIO_IGNORE_SILENT": "静音模式下播放声音", "ACNH_AUDIO_VOLUME": "游戏音量", "ACNH_CONTROLLER_LAYOUT": "控制器布局", "DM_FPS_TARGET": "帧率", "DM_RENDER_SCALE": "渲染比例", "DM_OPMODE": "运行模式", "DM_LANG": "游戏语言", "DM_SHOW_FPS": "显示帧率", "DM_METAL_HUD": "性能信息面板", "DM_FULLSCREEN": "显示模式", "ACNH_DISPLAY_MODE": "画面显示"]
         return text(fallback, names[env] ?? fallback, language: language)
     }
     static func option(env: String, value: String, fallback: String, language: String = Locale.preferredLanguages.first ?? "en") -> String {
