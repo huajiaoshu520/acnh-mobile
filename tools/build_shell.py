@@ -19,8 +19,10 @@ def audit_app(app):
     allowed = {'DmIOS', 'Info.plist', 'PkgInfo', 'dm/env.txt', 'dm/shell_info.json', 'ExpandedView-LICENSE.txt'}
     actual = {str(p.relative_to(app)) for p in app.rglob('*') if p.is_file()}
     icons = {'Assets.car', 'AppIcon60x60@2x.png', 'AppIcon60x60@3x.png', 'AppIcon76x76@2x~ipad.png'}
-    if not allowed <= actual or actual - allowed - icons:
-        raise ValueError('Unexpected shell files: '+str((allowed - actual) | (actual - allowed - icons)))
+    # Authored companion UI localization, emitted by Xcode when enabled.
+    localizations = {'zh-Hans.lproj/Companion.strings'}
+    if not allowed <= actual or actual - allowed - icons - localizations:
+        raise ValueError('Unexpected shell files: '+str((allowed - actual) | (actual - allowed - icons - localizations)))
     if any(p.is_symlink() for p in app.rglob('*')):
         raise ValueError('Shell contains symbolic links')
     info = plistlib.loads((app/'Info.plist').read_bytes())

@@ -4,7 +4,9 @@ import importlib.util, json, struct, sys, tempfile, unittest, zipfile, hashlib
 from pathlib import Path
 sys.dont_write_bytecode=True
 from pack_shell import extract_shell
-from build_shell import ROOT, source_id
+from build_shell import ROOT, source_id, audit_app
+from unittest.mock import patch
+import plistlib
 from audit_release import audit, APP_ICON
 
 class ShellTests(unittest.TestCase):
@@ -65,6 +67,19 @@ class ShellTests(unittest.TestCase):
             self.assertTrue(audit(root)[0]); extra.unlink()
             icon.write_bytes(data+b'changed')
             self.assertTrue(audit(root)[0])
+
+    def test_companion_localization_exact_allowlist(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app=Path(tmp)
+            for name in ['DmIOS','PkgInfo','dm/env.txt','dm/shell_info.json','ExpandedView-LICENSE.txt','Assets.car','zh-Hans.lproj/Companion.strings']:
+                p=app/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(b'fixture')
+            (app/'Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier':'org.acnhmobile.experimental','CFBundleIcons':{'CFBundlePrimaryIcon':{'CFBundleIconFiles':['AppIcon']}}}))
+            with patch('build_shell.subprocess.check_output',return_value=''):
+                self.assertIn('zh-Hans.lproj/Companion.strings',audit_app(app))
+                for name in ['zh-Hans.lproj/Game.strings','zh-Hans.lproj/prod.keys','RomFS/game.bin']:
+                    p=app/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(b'fixture')
+                    with self.subTest(name=name), self.assertRaises(ValueError):audit_app(app)
+                    p.unlink()
 
     def test_source_fingerprint(self):
         with tempfile.TemporaryDirectory() as tmp:
