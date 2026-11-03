@@ -1,6 +1,8 @@
 # ACNH Mobile
 
-**0.3.113 · build 122 — official Metal 4 edition, iOS 26+.**
+**0.3.114 · build 123 — official Metal 4 edition, iOS 26+.**
+
+Portrait companion now enables checked pocket moves, item actions, sorting and tool-ring interactions for the matching ACNH 3.0.3 build. Lower-screen Press A remains gated by upper-screen title readiness. Real iPad/Duo interaction verification is pending.
 
 Startup → Personalization includes Game volume (0–100%, default 100%). Game audio mixes with background music; the silent-mode playback preference is retained.
 

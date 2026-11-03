@@ -69,7 +69,6 @@ struct CompanionMarker: Identifiable {
         var next = read()
         let titleReady = (next["host.title.ready"] as? NSNumber)?.boolValue == true
         next["host.title.prompt"] = titleReady ? companionText("Press A") : ""
-        next["bag.can_write"] = 0; next["bag.can_use"] = 0
         if !(next as NSDictionary).isEqual(to: values) { values = next }
         let name=text("island.name")
         if !name.isEmpty && name != islandName { islandName = name }
@@ -92,10 +91,25 @@ struct CompanionMarker: Identifiable {
     func action(_ name: String, _ value: Int) { send(name, Int64(value)) }
     func pocketToken(_ slot: Int) -> String { text("bag.\(slot).token") }
     private func validToken(_ token: String) -> Bool { token.utf8.count == 16 && token.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) } }
-    // This presentation is read-only, even if a future module advertises write support.
-    func movePocket(from: Int, to: Int, expected: String) -> Bool { false }
-    func usePocket(_ slot: Int) {}
-    func pocketCommand(_ index: Int) {}
+    func movePocket(from: Int, to: Int, expected: String) -> Bool {
+        let fresh = read()
+        let slots = min(40, max(0, (fresh["bag.slots"] as? NSNumber)?.intValue ?? 0))
+        guard from >= 0, to >= 0, from < slots, to < slots,
+              (fresh["bag.can_write"] as? NSNumber)?.boolValue == true,
+              (fresh["bag.busy"] as? NSNumber)?.boolValue != true,
+              validToken(expected), fresh["bag.\(from).token"] as? String == expected,
+              let target = fresh["bag.\(to).token"] as? String, validToken(target) else { return false }
+        send("bag_move_checked_" + expected + "_" + target, Int64(from * 64 + to));return true
+    }
+    func usePocket(_ slot: Int) {
+        let token = pocketToken(slot);guard slot >= 0, slot < count("bag.slots", max: 40), number("bag.can_use") != 0, validToken(token) else { return }
+        send("bag_use_" + token, Int64(slot))
+    }
+    func pocketCommand(_ index: Int) {
+        let slot = number("bag.native.slot"), token = text("bag.native.token")
+        guard number("bag.native.open") != 0, number("bag.busy") == 0, slot >= 0, slot < 40, index >= 0, index < count("bag.native.count", max: 7), validToken(token) else { return }
+        send("bag_command_\(slot)_" + token, Int64(number("bag.native.\(index).id") * 8 + index))
+    }
     func text(_ key: String, _ fallback: String = "") -> String {
         let value = values[key] as? String ?? fallback
         // The native text sits beside decoded app/item icons. Nintendo's private icon

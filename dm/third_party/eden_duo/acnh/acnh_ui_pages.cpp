@@ -176,9 +176,9 @@ Image TextImg(Art& art, std::string_view text, double px, Rgba colour,
 }
 
 // ---- the app buttons -------------------------------------------------------------------------
-// acnh_mock.app_button: LMenuDeviceBtn N_NonSelect_00 at LMenuDeviceBtn_Type frame (P_Base colour
-// FLMC + icon FLTP). Mile-type frames (1, 11): the masked base (P_Base_02) is approximated with
-// DeviceIconMileCircle^w (texmap 1), as in the mock. Frame <-> app pairing: UNVERIFIED (catalog).
+// The idle home-grid button uses the game's Type animation, material colours,
+// and Mile globe colour stage/SRT. Installation progress (P_Base_02) is not an
+// idle icon. App/frame pairing comes from the running game's own table.
 Image AppButtonRaw(Art& art, int frame) {
     const auto l = art.Lyt("LMenuDeviceBtn");
     if (!l)
@@ -187,18 +187,9 @@ Image AppButtonRaw(Art& art, int frame) {
     o.anim = "LMenuDeviceBtn_Type";
     o.frame = static_cast<float>(frame);
     o.canvas_w = o.canvas_h = 200;
-    if (frame == 1 || frame == 11)
-        o.hide = {"P_Base_02"};
-    Image im = l->Compose("N_NonSelect_00", o);
-    if (frame == 1 || frame == 11) {
-        Image bg{200, 200};
-        draw::Composite(bg,
-                        draw::Resize(art.Tex("LMenuDeviceBtn", "DeviceIconMileCircle^w"), 150, 150),
-                        25, 25);
-        draw::Composite(bg, im, 0, 0);
-        im = std::move(bg);
-    }
-    return im;
+    o.hide = {"P_Base_02"};
+    o.colour_stage.emplace("P_Base_01",1);
+    return l->Compose("N_NonSelect_00", o);
 }
 
 constexpr std::array<std::pair<const char*, const char*>, 6> Tabs{{

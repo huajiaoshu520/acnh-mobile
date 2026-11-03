@@ -25,6 +25,10 @@ Image Tint(const Image& img, Rgba black, Rgba white);
 /// Tint times a vertex colour given as 0..1 floats (acnh_panesheet.tint with vtx: the mean of the
 /// pane's four vertex colours / 255).
 Image TintVtx(const Image& img, Rgba black, Rgba white, const float vtx[4]);
+/// Layout shader material/vertex colours are linear. Decode sRGB textures before
+/// mixing, then encode RGB for the companion image; alpha remains linear.
+Image TintLinear(const Image& img, Rgba black, Rgba white, bool texture_srgb,
+                 const float vtx[4]);
 /// ^s mask shortcut: black = colour @ 0, white = colour @ (alpha < 0 ? colour.a : alpha).
 Image MaskTint(const Image& mask, Rgba colour, int alpha = -1);
 
@@ -78,5 +82,7 @@ void FillRoundRect(Image& dst, double x0, double y0, double x1, double y1, doubl
 /// then alpha_composite). `inv` maps destination pixel centres to source coordinates:
 /// sx = inv[0]*x + inv[1]*y + inv[2], sy = inv[3]*x + inv[4]*y + inv[5].
 void AffineComposite(Image& dst, const Image& src, const double inv[6]);
+/// Sample a colour stage through its SRT, multiplying the primary stage's alpha.
+Image TextureLayer(const Image& texture,const Image& mask,const double inv[6]);
 
 } // namespace acnh::draw

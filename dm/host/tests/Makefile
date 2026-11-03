@@ -332,3 +332,18 @@ coverage:
 # ACNH integration regression for nested SDK audio opens.
 $(B)/t_audren_open: t_audren_open.c ../hle_audren.c ../hle.h ../dm.h $(GAME_H) | $(B)
 	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_audren_open.c
+
+# Companion inventory access and renderer regression tests.
+companion-check: $(B)/t_guest_transaction $(B)/t_companion_write $(B)/t_companion_sort $(B)/t_companion_material
+	$(B)/t_guest_transaction
+	$(B)/t_companion_write
+	$(B)/t_companion_sort
+	$(B)/t_companion_material
+$(B)/t_guest_transaction: t_guest_transaction.c t_condvar_stub.c ../hle_thread.c ../dm.h $(GAME_H) | $(B)
+	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_guest_transaction.c t_condvar_stub.c
+$(B)/t_companion_write: t_companion_write.c ../hle_companion.c ../dm.h $(GAME_H) | $(B)
+	$(CLANG) -O1 -g -Wall -Werror -I.. $(GINC) -o $@ t_companion_write.c
+$(B)/t_companion_sort: t_companion_sort.cpp ../../third_party/eden_duo/acnh/acnh_bag.cpp | $(B)
+	clang++ -O1 -g -std=c++20 -I../../third_party/eden_duo -o $@ t_companion_sort.cpp ../../third_party/eden_duo/acnh/acnh_bag.cpp
+$(B)/t_companion_material: t_companion_material.mm ../../third_party/eden_duo/acnh/acnh_draw.cpp | $(B)
+	clang++ -O1 -g -std=c++20 -fobjc-arc -ffp-contract=off -I../../third_party/eden_duo -o $@ t_companion_material.mm ../../third_party/eden_duo/acnh/acnh_draw.cpp -framework Foundation -framework Metal

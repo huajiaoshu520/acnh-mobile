@@ -591,6 +591,20 @@ int thr_list(pthread_t *out, int max) {
     pthread_mutex_unlock(&G);
     return n;
 }
+int dm_guest_transaction(int (*body)(void *), void *context) {
+    if(!body || pthread_getspecific(g_keythr) || pthread_mutex_trylock(&G))return 0;
+    // G pins thread objects and prevents StartThread/ExitThread/list mutations. A new
+    // pthread still in its prologue cannot reach guest code until it acquires G.
+    mach_port_t ports[MAX_H];unsigned count=0;int ok=1;
+    mach_port_t self=pthread_mach_thread_np(pthread_self());
+    for(thr_t *t=g_all;t;t=t->all)if(t->started && !t->exited && !t->host_owned && t->mport){
+        if(t->mport==self || count==MAX_H || thread_suspend(t->mport)!=KERN_SUCCESS){ok=0;break;}
+        ports[count++]=t->mport;
+    }
+    if(ok)ok=body(context);
+    while(count)thread_resume(ports[--count]);
+    pthread_mutex_unlock(&G);return ok;
+}
 // Soak readings (DM_SOAK): handle table usage, live guest threads, total thread objects (including exited but not yet freed)
 void thr_counts(int *handles, int *live, int *objs) {
     int nh = 0, nl = 0, no = 0;

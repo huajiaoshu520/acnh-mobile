@@ -79,6 +79,12 @@ bool Bflyt::Parse(const std::vector<uint8_t>& b) {
                     const uint16_t ti = r.U16(mo + 0x2C + 4 * t);
                     m.tex.push_back(ti < textures.size() ? textures[ti] : std::string{});
                 }
+                const size_t srt=mo+0x2C+4*(flags&3);
+                for(uint32_t t=0;t<((flags>>2)&3);t++){
+                    const size_t at=srt+20*t;
+                    if(at+20>s+size)return false;
+                    m.texture_srt.push_back({r.F32(at),r.F32(at+4),r.F32(at+8),r.F32(at+12),r.F32(at+16)});
+                }
                 materials.push_back(std::move(m));
             }
         } else if (tag == "pan1" || tag == "pic1" || tag == "txt1" || tag == "wnd1" ||
@@ -246,6 +252,7 @@ std::shared_ptr<Layout> Layout::Load(Romfs& romfs, std::string_view name) {
         }
     }
     l->archive = arc;
+    if(l->bntx)for(const auto& tex:BntxList(*l->bntx))l->texture_srgb.emplace(tex.name,(tex.format&255)==6);
     return l->tree.panes.empty() && !l->bntx ? nullptr : l;
 }
 
@@ -342,14 +349,33 @@ Image Layout::Compose(std::string_view root_name, const ComposeOptions& opt) con
                         mat.tex[0] = tx;
                 }
             }
-            const auto tex = !mat.tex.empty() ? Texture(mat.tex[0]) : nullptr;
+            size_t stage=0;
+            if(auto it=opt.colour_stage.find(p.name);it!=opt.colour_stage.end())stage=it->second;
+            const auto tex = stage<mat.tex.size() ? Texture(mat.tex[stage]) : nullptr;
             if (tex && !tex->Empty()) {
+                Image sampled;
+                const Image *pixels=tex.get();
+                if(stage>0){
+                    const auto mask=Texture(mat.tex[0]);
+                    if(!mask || mask->Empty())return;
+                    sampled=Image{mask->w,mask->h};
+                    const auto srt=stage<mat.texture_srt.size()?mat.texture_srt[stage]:LytMaterial::TextureSrt{};
+                    if(!std::isfinite(srt.x)||!std::isfinite(srt.y)||!std::isfinite(srt.rotation)||!std::isfinite(srt.sx)||!std::isfinite(srt.sy))return;
+                    const double angle=srt.rotation*std::numbers::pi/180.0,c=std::cos(angle),s=std::sin(angle);
+                    const double a=c*srt.sx,b=-s*srt.sy,d=s*srt.sx,e=c*srt.sy;
+                    const double inv[6]={a*tex->w/sampled.w,b*tex->w/sampled.h,(.5+srt.x-.5*a-.5*b)*tex->w,d*tex->h/sampled.w,e*tex->h/sampled.h,(.5+srt.y-.5*d-.5*e)*tex->h};
+                    sampled=draw::TextureLayer(*tex,*mask,inv);
+                    pixels=&sampled;
+                }
                 const bool plain = std::all_of(p.vtx.begin(), p.vtx.end(), [](const Rgba& c) {
                     return c.r == 255 && c.g == 255 && c.b == 255 && c.a == 255;
                 });
                 Image t;
+                const auto colour=texture_srgb.find(mat.tex[stage]);
+                const bool srgb=colour!=texture_srgb.end() && colour->second;
                 if (plain) {
-                    t = draw::Tint(*tex, mat.black, mat.white);
+                    const float white[4]={1,1,1,1};
+                    t = draw::TintLinear(*pixels, mat.black, mat.white,srgb,white);
                 } else {
                     // mean of the 4 vertex colours, float32 like numpy
                     float m[4] = {0, 0, 0, 0};
@@ -361,7 +387,7 @@ Image Layout::Compose(std::string_view root_name, const ComposeOptions& opt) con
                     }
                     const float avg[4] = {m[0] / 4 / 255.0f, m[1] / 4 / 255.0f, m[2] / 4 / 255.0f,
                                           m[3] / 4 / 255.0f};
-                    t = draw::TintVtx(*tex, mat.black, mat.white, avg);
+                    t = draw::TintLinear(*pixels, mat.black, mat.white,srgb,avg);
                 }
                 const double k = al * p.alpha / 255.0;
                 if (k < 1.0)

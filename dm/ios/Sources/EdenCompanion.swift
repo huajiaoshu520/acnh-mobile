@@ -311,7 +311,7 @@ struct EdenSurfaceLayout {
             model.load(key){[weak self] data,w,h in
                 var image:CGImage?
                 if let data,w>0,h>0,w<=4096,h<=4096,data.count==w*h*4,let provider=CGDataProvider(data:data as CFData) {
-                    image=CGImage(width:w,height:h,bitsPerComponent:8,bitsPerPixel:32,bytesPerRow:w*4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGBitmapInfo(rawValue:CGBitmapInfo.byteOrder32Big.rawValue|CGImageAlphaInfo.last.rawValue),provider:provider,decode:nil,shouldInterpolate:true,intent:.defaultIntent)
+                    image=CGImage(width:w,height:h,bitsPerComponent:8,bitsPerPixel:32,bytesPerRow:w*4,space:CGColorSpace(name: CGColorSpace.sRGB)!,bitmapInfo:CGBitmapInfo(rawValue:CGBitmapInfo.byteOrder32Big.rawValue|CGImageAlphaInfo.last.rawValue),provider:provider,decode:nil,shouldInterpolate:true,intent:.defaultIntent)
                 }
                 let result=image
                 Task{@MainActor in
@@ -408,7 +408,7 @@ private func edenLabelKey(_ text:String,_ scale:Double,_ color:Any?)->String {
         return CGSize(width:min(-left,max(map.rect.width-right,proposed.width)),height:min(-top,max(map.rect.height-bottom,proposed.height)))
     }
     private func extraNodes(_ f:EdenFrame)->[EdenNode] {
-        guard f.page=="bag",model.number("bag.can_write") != 0 || model.number("bag.can_use") != 0 else{return []};var nodes:[EdenNode]=[]
+        guard f.page=="bag" else{return []};var nodes:[EdenNode]=[]
         func chip(_ id:Int,_ rect:CGRect,_ title:String,_ action:String) {
             nodes.append(EdenNode(id:id,data:["type":"image","src":"module:acnh/ui/capsule?w=\(Int(rect.width))&h=\(Int(rect.height))&c=fff1c3","on_tap":action,"apple_label":companionText(title)],rect:rect,clip:nil))
             nodes.append(EdenNode(id:id+1,data:["type":"label","text":companionText(title),"text_scale":4,"color":"#FF746144","align":"center"],rect:CGRect(x:rect.midX,y:rect.midY-10,width:0,height:0),clip:nil))

@@ -254,6 +254,25 @@ uint8_t LinearToSrgb(float v) {
     const double s = c <= 0.0031308 ? c * 12.92 : 1.055 * std::pow(c, 1.0 / 2.4) - 0.055;
     return static_cast<uint8_t>(std::lround(s * 255.0));
 }
+} // namespace
+
+Image TintLinear(const Image& img, Rgba black, Rgba white, bool texture_srgb,
+                 const float vtx[4]) {
+    const float b[4] = {black.r/255.0f,black.g/255.0f,black.b/255.0f,black.a/255.0f};
+    const float w[4] = {white.r/255.0f,white.g/255.0f,white.b/255.0f,white.a/255.0f};
+    uint8_t lut[4][256];
+    for(int c=0;c<4;c++)for(int v=0;v<256;v++){
+        float sample=texture_srgb && c<3?SrgbToLinear(v):v/255.0f;
+        float result=std::clamp((b[c]+(w[c]-b[c])*sample)*vtx[c],0.0f,1.0f);
+        lut[c][v]=c<3?LinearToSrgb(result):static_cast<uint8_t>(std::lround(result*255.0f));
+    }
+    Image out{img.w,img.h};
+    if(img.Empty())return {};
+    for(size_t p=0;p<out.rgba.size();p++)out.rgba[p]=lut[p&3][img.rgba[p]];
+    return out;
+}
+
+namespace {
 // One separable area pass over a premultiplied linear float image (iw x ih -> ow x oh, only one
 // axis changing).
 std::vector<float> AreaPass(const std::vector<float>& in, int iw, int ih, int ow, int oh) {
@@ -695,6 +714,14 @@ void AffineComposite(Image& dst, const Image& src, const double inv[6]) {
         }
     Unpremultiply(layer);
     Composite(dst, layer, 0, 0);
+}
+
+Image TextureLayer(const Image& texture,const Image& mask,const double inv[6]){
+    if(texture.Empty() || mask.Empty())return {};
+    Image sampled{mask.w,mask.h};
+    AffineComposite(sampled,texture,inv);
+    for(size_t q=3;q<sampled.rgba.size();q+=4)sampled.rgba[q]=static_cast<uint8_t>((unsigned(sampled.rgba[q])*mask.rgba[q]+127)/255);
+    return sampled;
 }
 
 } // namespace acnh::draw

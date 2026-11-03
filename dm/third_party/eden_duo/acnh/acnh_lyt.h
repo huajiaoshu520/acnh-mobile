@@ -12,7 +12,8 @@
 //   - Compose(): draws a pane subtree like acnh_compose: translate/rotate/scale/size/origin,
 //     visibility (optionally from an anim frame), pane alpha, vertex colour and the material tint
 //     of the FIRST texmap. Not reproduced (as in the research tool): extra texmaps / TEV stages /
-//     combiner shaders, texture SRT, window panes, text, masks.
+//     arbitrary combiner shaders, window panes, text, masks. Explicit colour-stage
+//     selection supports the idle icon layers and their material texture SRT.
 #pragma once
 
 #include <array>
@@ -30,9 +31,11 @@
 namespace acnh {
 
 struct LytMaterial {
+    struct TextureSrt {float x=0,y=0,rotation=0,sx=1,sy=1;};
     std::string name;
     Rgba black{0, 0, 0, 0}, white{255, 255, 255, 255};
     std::vector<std::string> tex; ///< texmap texture names
+    std::vector<TextureSrt> texture_srt;
 };
 
 struct LytPane {
@@ -102,6 +105,8 @@ public:
         double scale = 1.0;
         double center_x = 0, center_y = 0;
         std::vector<std::string> hide;
+        /// A colour stage modulated by the first texture's alpha (idle UI layers).
+        std::map<std::string,size_t,std::less<>> colour_stage;
     };
     /// acnh_compose.compose(): the children of `root` drawn on a transparent canvas, layout y up.
     Image Compose(std::string_view root, const ComposeOptions& opt) const;
@@ -113,6 +118,7 @@ private:
     const std::vector<uint8_t>* bntx = nullptr;
     mutable std::mutex tex_mutex;
     mutable std::map<std::string, std::shared_ptr<const Image>, std::less<>> tex_cache;
+    std::map<std::string,bool,std::less<>> texture_srgb;
 };
 
 /// Romfs-instance layout cache shared by art and map code (thread-safe).

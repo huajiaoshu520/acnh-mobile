@@ -27,10 +27,24 @@ import Foundation
         snapshot = ["bag.slots": 20, "bag.can_write": 1, "bag.can_use": 1, "bag.busy": 0, "bag.0.token": source, "bag.6.token": target]
         model.poll()
         let before = sent.count
-        assert(model.number("bag.can_write") == 0 && model.number("bag.can_use") == 0)
+        assert(model.number("bag.can_write") == 1 && model.number("bag.can_use") == 1)
+        assert(model.movePocket(from: 0, to: 6, expected: source))
+        assert(sent.last?.0 == "bag_move_checked_" + source + "_" + target && sent.last?.1 == 6)
+        let moved = sent.count
+        assert(!model.movePocket(from: 0, to: 6, expected: target))
+        assert(!model.movePocket(from: -1, to: 6, expected: source))
+        assert(!model.movePocket(from: 0, to: 20, expected: source))
+        snapshot["bag.busy"] = 1
         assert(!model.movePocket(from: 0, to: 6, expected: source))
-        model.usePocket(0);model.pocketCommand(1)
-        assert(sent.count == before)
+        snapshot["bag.busy"] = 0; snapshot["bag.can_write"] = 0
+        assert(!model.movePocket(from: 0, to: 6, expected: source))
+        assert(sent.count == moved && moved == before + 1)
+        model.usePocket(0);assert(sent.last?.0 == "bag_use_" + source)
+        snapshot["bag.native.open"] = 1;snapshot["bag.native.slot"] = 0
+        snapshot["bag.native.token"] = source;snapshot["bag.native.count"] = 2
+        snapshot["bag.native.1.id"] = 7;model.poll();model.pocketCommand(1)
+        assert(sent.last?.0 == "bag_command_0_" + source && sent.last?.1 == 57)
+        let commanded=sent.count;model.pocketCommand(2);assert(sent.count == commanded)
         model.select(.bag);model.select(.map);assert(sent.suffix(2).first?.0 == "bag_cancel")
         let recipe: [String: Any] = ["derived": [
             ["name":"simple", "terms":["a","b"], "add":-1],

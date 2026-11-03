@@ -2,7 +2,9 @@
   "title_id": "01006F8002326000",
   "ui": "acnh",
   "layout": "portrait-split",
-  "write_builds": [],
+  "write_builds": [
+    "ff1d1c05670db6021c85b624a710b963"
+  ],
   "input_gates": {
     "pdrv.a": 1,
     "pdrv.b": 2,

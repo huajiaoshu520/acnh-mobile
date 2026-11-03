@@ -1,3 +1,6 @@
-Portrait companion adapted from ShawndYang/AnimalDuo for ACNH Mobile, 2026-11-03.
-Read-only six-page companion; existing .data resource reader and existing controls retained.
+Portrait companion adapted from ShawndYang/AnimalDuo for ACNH Mobile.
+Reviewed upstream: 3ddaea8c9b115e259d252e6d1b66e2f360ba563c.
+Six-page companion with checked inventory interactions and native phone actions.
+Retains the existing .data reader, controls, portrait geometry and title-ready A synchronization.
+Does not integrate upstream resident management, backup/cloud saves or experimental LAN visits.
 Original licenses and attribution retained. Combined distribution is GPL-3.0-or-later.

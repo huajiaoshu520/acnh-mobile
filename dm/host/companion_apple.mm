@@ -251,9 +251,6 @@ static BOOL writePNG(NSData *rgba,NSUInteger w,NSUInteger h,NSString *path) {
 }
 - (void)action:(NSString *)name argument:(int64_t)argument {
     if(!name.length || name.length>128)return;
-    if([name hasPrefix:@"bag_move"] ||
-       [name hasPrefix:@"bag_use"] || [name hasPrefix:@"bag_command"] ||
-       [name hasPrefix:@"bag_sort"])return;
     if([name hasPrefix:@"host.press."]){
         // Only the title's A action is exposed; revalidate at tap time.
         if(![name isEqual:@"host.press.A"] || ![self.snapshot[@"scene.title"]boolValue] ||

@@ -195,3 +195,6 @@ void dm_gfx_enter(void); void dm_gfx_leave(void);   // hle_nvn.c: the gate dm_gf
 void dm_gfx_shot_at(long k, const char *path);
 void dm_shot_written(const char *path, int ok);   // The graphics side finished writing a screenshot to disk (diag.c: DM_TICK_HOLD=E:SHOT unfreezes on this)
 void dm_host_shutdown(const char *why);   // Graceful exit (crash.c): stop background threads and audio, drain graphics, then _exit(0); used by SIGTERM and the iOS App termination callback   // graphics side: screenshot of the k-th frame after the current presented frame (nvn_mtl.m)
+
+// Run a nonblocking heap callback with all guest threads suspended.
+int dm_guest_transaction(int (*body)(void *), void *context);
