@@ -49,6 +49,14 @@ static void perspective(uint64_t *r,int param) {
         }
     }pthread_mutex_unlock(&wide_lock);
 }
+// Last frame in which the real title's A prompt was visibly laid out.
+// A frame stamp expires when the layout is destroyed or no longer calculated.
+static _Atomic uint64_t title_prompt_frame;
+int acnh_title_prompt_ready(void) {
+    uint64_t stamp=atomic_load_explicit(&title_prompt_frame,memory_order_acquire);
+    uint64_t frame=dm_nvn_frame_count();
+    return stamp && frame>=stamp-1 && frame-(stamp-1)<=3;
+}
 #include "acnh_wide_ui.inc"
 __attribute__((constructor)) static void acnh_display_hooks(void) {
     gate_obs_set(OBS_ACNH_PERSPECTIVE,perspective);

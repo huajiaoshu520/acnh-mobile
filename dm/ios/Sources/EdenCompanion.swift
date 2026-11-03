@@ -158,7 +158,7 @@ struct EdenFrame {
         var bindingsLocal=local;bindingsLocal["ui.page"]=Double(model.page.rawValue)
         let b=EdenBindings(model.values,bindingsLocal.merging(["module_ready":1,"acnh.font":1]){a,_ in a},manifest);bindings=b
         var pg=b.number("ui.pg");if pg==0 && model.ready{pg=Double(model.page.rawValue)}
-        page = b.number("host.unsupported") != 0 ? "version" : b.number("module_error") != 0 ? "error" : b.number("scene.title") != 0 ? "title" : !model.ready ? "waiting" : [1:"map",2:"bag",3:"critters",4:"diy",5:"today",6:"phone"][Int(pg)] ?? "map"
+        page = b.number("host.unsupported") != 0 ? "version" : b.number("module_error") != 0 ? "error" : b.number("scene.title") != 0 ? (b.number("host.title.ready") != 0 ? "title" : "waiting") : !model.ready ? "waiting" : [1:"map",2:"bag",3:"critters",4:"diy",5:"today",6:"phone"][Int(pg)] ?? "map"
         let p=manifest.pages[page] ?? [:]
         scrolls=(p["scrolls"] as? [[String:Any]] ?? []).filter { spec in
             b.shown(spec) && ((spec["show_bind"] as? String).map { b.number($0) != 0 } ?? true)
@@ -534,13 +534,37 @@ private func edenLabelKey(_ text:String,_ scale:Double,_ color:Any?)->String {
     var body:some View {
         let f=EdenFrame(model:model,manifest:manifest,local:local),nodes=renderNodes(f)
         let bodyNodes=nodes.filter{$0.rect.minY<960},navNodes=nodes.filter{$0.rect.minY>=960}
-        let keys=assetKeys(nodes,f)
+        // Request the unframed theme artwork separately from the page panel.
+        let pageBackground=bodyNodes.first{$0.kind=="image" && $0.rect.width==1240 && $0.rect.height==1080}
+        let backgroundKey=pageBackground.map { node -> String in
+            let source=f.source(node)
+            guard source.hasPrefix("module:acnh/bg/") else{return ""}
+            let parts=source.split(separator:"/")
+            guard parts.count>=4 else{return ""}
+            return parts.dropLast().joined(separator:"/")+"/all"
+        } ?? ""
+        let keys=assetKeys(nodes,f).union(backgroundKey.isEmpty ? []:[backgroundKey])
         GeometryReader{geometry in
             let layout=EdenSurfaceLayout(geometry.size)
             Canvas{context,_ in
-                // Bleed the original background to every edge; content retains its aspect.
-                if let background=bodyNodes.first(where:{$0.kind=="image" && $0.rect.width==1240 && $0.rect.height==1080}),let image=images.get(f.source(background)) {
-                    context.draw(Image(decorative:image,scale:1),in:CGRect(origin:.zero,size:geometry.size))
+                // Tile only the unframed backdrop at the content scale. The framed
+                // page is drawn once below; extending it would produce double borders.
+                if let background=images.get(backgroundKey) {
+                    let width=CGFloat(background.width)*layout.bodyScale
+                    let height=CGFloat(background.height)*layout.bodyScale
+                    if width>0 && height>0 {
+                        var y=layout.bodyOffset.y.truncatingRemainder(dividingBy:height)
+                        if y>0 {y-=height}
+                        while y<geometry.size.height {
+                            var x=layout.bodyOffset.x.truncatingRemainder(dividingBy:width)
+                            if x>0 {x-=width}
+                            while x<geometry.size.width {
+                                context.draw(Image(decorative:background,scale:1),in:CGRect(x:x,y:y,width:width,height:height))
+                                x+=width
+                            }
+                            y+=height
+                        }
+                    }
                 }
                 var body=context;body.clip(to:Path(layout.body));body.translateBy(x:layout.bodyOffset.x,y:layout.bodyOffset.y);body.scaleBy(x:layout.bodyScale,y:layout.bodyScale);draw(bodyNodes,f,&body)
                 var nav=context;nav.clip(to:Path(layout.footer));nav.translateBy(x:layout.navOffset.x,y:layout.navOffset.y);nav.scaleBy(x:layout.navScale,y:layout.navScale);draw(navNodes,f,&nav)

@@ -182,3 +182,4 @@ jobs:
           gh release download "$RELEASE_TAG" --pattern 'LiveContainer-3.8.11+SideStore-ACNH-LAN-unsigned.ipa' --dir "$RUNNER_TEMP/remote-host"
           (cd "$RUNNER_TEMP/remote-host" && echo '2045982f1190b41741b92616ee71882d0c3d462ae87ffd3581cb4833450fb993  LiveContainer-3.8.11+SideStore-ACNH-LAN-unsigned.ipa' | shasum -a 256 -c -)
           gh release edit "$RELEASE_TAG" --draft=false --latest
+          python3 tools/update_release_index.py

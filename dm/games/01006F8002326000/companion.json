@@ -3,5 +3,16 @@
   "ui": "acnh",
   "layout": "portrait-split",
   "write_builds": [],
-  "input_gates": {}
+  "input_gates": {
+    "pdrv.a": 1,
+    "pdrv.b": 2,
+    "pdrv.x": 4,
+    "pdrv.l": 64,
+    "pdrv.r": 128,
+    "pdrv.zl": 256,
+    "pdrv.left": 4096,
+    "pdrv.up": 8192,
+    "pdrv.right": 16384,
+    "pdrv.down": 32768
+  }
 }

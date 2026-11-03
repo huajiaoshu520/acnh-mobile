@@ -19,6 +19,10 @@ import Foundation
         snapshot = ["kabu.now": 12, "kabu.12": 999];model.poll();assert(model.turnipPrice == 0)
         snapshot = ["kabu.now": 6, "kabu.6": -1];model.poll();assert(model.turnipPrice == 0)
         snapshot = [:];model.poll();assert(model.turnipPrice == 0 && !model.ready)
+        snapshot=["scene.title":1,"host.title.ready":0];model.poll()
+        assert(model.text("host.title.prompt") == "")
+        snapshot["host.title.ready"]=1;model.poll();assert(model.text("host.title.prompt") == "Press A")
+        snapshot=["scene.title":1];model.poll();assert(model.text("host.title.prompt") == "")
         let source = "0102030405060708", target = "feff000000000000"
         snapshot = ["bag.slots": 20, "bag.can_write": 1, "bag.can_use": 1, "bag.busy": 0, "bag.0.token": source, "bag.6.token": target]
         model.poll()

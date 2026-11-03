@@ -3,6 +3,7 @@
 #include "companion.h"
 extern "C" {
 #include "acnh_data.h"
+int acnh_title_prompt_ready(void) __attribute__((weak_import));
 }
 #include "../third_party/eden_duo/core/mods/dsmod_module_abi.h"
 #include "../third_party/eden_duo/core/mods/dsmod_module_extensions.h"
@@ -224,6 +225,7 @@ static BOOL writePNG(NSData *rgba,NSUInteger w,NSUInteger h,NSString *path) {
     @synchronized(self){if(!_visible)return;generation=_visibilityGeneration;}
     if(!_instance && ![self createModule])return;
     _output=[NSMutableDictionary new];_api->sample(_instance,&_host);if(_api->tick)_api->tick(_instance,&_host);
+    _output[@"host.title.ready"]=@([_output[@"scene.title"]boolValue] && acnh_title_prompt_ready && acnh_title_prompt_ready());
     ++_sample;
     // The upstream phone navigation emits ordinary controller gates. Keep this input
     // independent of physical pads and touchscreen controls.
@@ -249,11 +251,14 @@ static BOOL writePNG(NSData *rgba,NSUInteger w,NSUInteger h,NSString *path) {
 }
 - (void)action:(NSString *)name argument:(int64_t)argument {
     if(!name.length || name.length>128)return;
-    if([name hasPrefix:@"host.press."] || [name hasPrefix:@"bag_move"] ||
+    if([name hasPrefix:@"bag_move"] ||
        [name hasPrefix:@"bag_use"] || [name hasPrefix:@"bag_command"] ||
        [name hasPrefix:@"bag_sort"])return;
     if([name hasPrefix:@"host.press."]){
-        NSString *gate=[@"pdrv." stringByAppendingString:[name substringFromIndex:11]];
+        // Only the title's A action is exposed; revalidate at tap time.
+        if(![name isEqual:@"host.press.A"] || ![self.snapshot[@"scene.title"]boolValue] ||
+           !acnh_title_prompt_ready || !acnh_title_prompt_ready())return;
+        NSString *gate=@"pdrv.a";
         uint64_t generation,duration=(uint64_t)MAX(50,MIN(500,argument));
         @synchronized(self){
             uint64_t press=[_inputGates[gate]unsignedLongLongValue];

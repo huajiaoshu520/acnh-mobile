@@ -23,6 +23,17 @@ static NSDictionary *load(const char *key) {
 
 int main(void) { @autoreleasepool {
     nvn_refl r; char err[160] = "";
+    {   // A missing primitive-ID field must clear the flag when the reflection object is reused.
+        NSArray *samples = @[
+            @{@"route": @"B", @"bindings": @[], @"raster": @{@"primitive_id": @1}},
+            @{@"route": @"B", @"bindings": @[], @"raster": @{@"primitive_id": @0}},
+            @{@"route": @"B", @"bindings": @[]}];
+        for (NSUInteger i = 0; i < samples.count; i++) {
+            r.reads_prim_id = 1;
+            check("primitive ID reflection parses", 0, nvn_refl_from_json(samples[i], &r, err, sizeof err));
+            check("primitive ID flag / legacy default", i == 0, r.reads_prim_id);
+        }
+    }
     {   // native image atomics (dmsh_atomic.py): one read_write image, marked atomic by the build; an image the shader only stores to is not
         NSDictionary *j = @{@"route": @"B", @"bindings": @[
             @{@"kind": @"img", @"reg": @2, @"arg_id": @0, @"msl_name": @"cp_i_cb2_4C_r32ui", @"msl_type": @"texture_buffer<uint, access::read_write>", @"atomic": @YES},

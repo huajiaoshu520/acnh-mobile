@@ -37,5 +37,7 @@ int dm_companion_guest_read(uint64_t at,void *out,size_t n) {
 int dm_companion_guest_write_batch(const dm_companion_write_op *ops,uint32_t count) {
     (void)ops;(void)count;return 0;
 }
-void dm_companion_input(uint64_t buttons) { (void)buttons; }
-void dm_companion_input_reset(void) {}
+void dm_hid_companion_set(uint64_t buttons);
+void dm_hid_companion_reset(void);
+void dm_companion_input(uint64_t buttons) { dm_hid_companion_set(buttons); }
+void dm_companion_input_reset(void) { dm_hid_companion_reset(); }

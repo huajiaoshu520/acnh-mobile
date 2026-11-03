@@ -114,6 +114,7 @@ private struct LauncherView: View {
                         .font(.title.weight(.bold)).multilineTextAlignment(.center)
                     Text("\(localized("Version", "版本")) \((info("CFBundleShortVersionString") as? String) ?? "") · \((info("CFBundleVersion") as? String) ?? "")")
                         .font(.callout).foregroundStyle(.secondary)
+                    ReleaseCheckView()
                     playButton
                 }
                 .padding(16)

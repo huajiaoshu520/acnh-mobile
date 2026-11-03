@@ -58,6 +58,17 @@ def msbt(data):
 
 def generate(source):
     root = json.loads((source/'manifest.json').read_text())
+    root['actions']['title.start']['enabled_bind'] = 'host.title.ready'
+    for page in root['pages']:
+        # Before the module has identified the build, its zero-valued version
+        # must not render the vendor's 1.0.0 warning over the loading artwork.
+        if page.get('id') == 'waiting':
+            page['widgets'] = [w for w in page.get('widgets', [])
+                               if 'ui.badbuild' not in w.get('need_bind', '')]
+        if page.get('id') == 'title':
+            for widget in page.get('widgets', []):
+                if widget.get('bind_text') == 'txt.title.press':
+                    widget['bind_text'] = 'host.title.prompt'
     root['apple_flavor'] = {p.stem: json.loads(p.read_text()) for p in sorted((source/'flavor').glob('*.json')) if '{' not in p.name}
     return root
 

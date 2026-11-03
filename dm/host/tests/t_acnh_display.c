@@ -2,6 +2,8 @@
 #include <math.h>
 #include "../../gfx/nvn/acnh_present_math.h"
 #include "../hle_acnh_wide.c"
+static uint64_t test_frame=1;
+uint64_t dm_nvn_frame_count(void){return test_frame;}
 static module_t modules[1];module_t *g_mod=modules;int g_nmod;
 void gate_obs_set(int id,void(*fn)(uint64_t*,int)){assert(id==32||id==33);(void)fn;}
 int main(void){
@@ -545,6 +547,19 @@ int main(void){
    assert(ui_float(q,0x48)==1&&ui_float(q,0x4c)==1);
   }
  }
+ // Title prompt readiness follows visible panes, expires when no longer drawn,
+ // and works at the original 16:9 ratio used by the upper portrait screen.
+ uint64_t title[40]={0},press[40]={0};uintptr_t tr=(uintptr_t)title,titlePress=(uintptr_t)press;
+ title[0]=base+0x4a85590;press[0]=base+0x4a85590;
+ strcpy((char*)(tr+0xb0),"RootPane");strcpy((char*)(titlePress+0xb0),"L_BtnPressA_00");
+ *(uintptr_t*)(titlePress+0x18)=tr;fput((void*)(titlePress+0x50),600);fput((void*)(titlePress+0x54),920);
+ *(uint8_t*)(tr+0x58)=*(uint8_t*)(titlePress+0x58)=1;
+ *(uint8_t*)(tr+0x59)=*(uint8_t*)(titlePress+0x59)=255;
+ acnh_wide_set_aspect(16.f/9.f);r[0]=titlePress;test_frame=100;ui_pane(r,0);assert(acnh_title_prompt_ready());
+ test_frame=104;assert(!acnh_title_prompt_ready());
+ ui_pane(r,0);assert(acnh_title_prompt_ready());
+ *(uint8_t*)(tr+0x59)=0;ui_pane(r,0);assert(!acnh_title_prompt_ready());
+ *(uint8_t*)(tr+0x59)=255;*(uint8_t*)(titlePress+0x58)=0;ui_pane(r,0);assert(!acnh_title_prompt_ready());
  puts("PASS: world proportions, fixed vertical FOV, minimap exclusion, square views, UI proportion, idempotence and restore");
  return 0;
 }

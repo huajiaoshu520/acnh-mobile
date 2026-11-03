@@ -31,6 +31,17 @@ _Static_assert(sizeof(NpadState) == 0x28, "NpadState");
 // their own path because a connected controller publishes its whole state on every change (a DualShock 4's sticks change all the time), which overwrote them on the shared one;
 // the separate paths also keep scripted input out of DM_REC, which records the physical ones (rec_read)
 static _Atomic uint64_t g_btn, g_axes, g_latch, g_sc_btn, g_sc_axes, g_sc_latch, g_pad_btn[DM_PLAYERS], g_pad_axes[DM_PLAYERS], g_pad_latch[DM_PLAYERS];
+// Companion navigation is an independent player-one source, never a pad override.
+static _Atomic uint64_t g_companion_btn, g_companion_latch;
+void dm_hid_companion_set(uint64_t buttons) {
+    buttons &= 0xf1c7ull; // A/B/X, L/R/ZL and directional navigation only.
+    uint64_t old = atomic_exchange(&g_companion_btn, buttons);
+    atomic_fetch_or(&g_companion_latch, buttons & ~old);
+}
+void dm_hid_companion_reset(void) {
+    atomic_store(&g_companion_btn, 0);
+    atomic_store(&g_companion_latch, 0);
+}
 static _Atomic int64_t g_sampling = 1 << 16;   // starts high so the history entries below the newest keep positive sampling numbers
 static uint64_t pack(int32_t lx, int32_t ly, int32_t rx, int32_t ry) {
     return (uint64_t)(uint16_t)lx | (uint64_t)(uint16_t)ly << 16 | (uint64_t)(uint16_t)rx << 32 | (uint64_t)(uint16_t)ry << 48;
@@ -426,6 +437,7 @@ static void fill(NpadState *s, uint32_t id, uint32_t style) {
     if (!pl) {   // the physical sources so far (DM_REC records them, DM_BTN_SHAKE only from player 1's own controller and the keyboard, as shake_note), then the scripted path
         if (atomic_load_explicit(&g_rec_on, memory_order_relaxed)) rec_read((b & 0xffffull) | ((atomic_load(&g_btn) | atomic_load(&g_pad_btn[0])) & DM_BTN_SHAKE), a);
         b |= atomic_load(&g_sc_btn) | atomic_exchange(&g_sc_latch, 0);
+        b |= atomic_load(&g_companion_btn) | atomic_exchange(&g_companion_latch, 0);
         uint64_t c = atomic_load(&g_sc_axes); for (int i = 0; i < 4; i++) a[i] = pick(a[i], ax(c, i));
     }
     s->lx = a[0]; s->ly = a[1]; s->rx = a[2]; s->ry = a[3];

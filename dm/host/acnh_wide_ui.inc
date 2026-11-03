@@ -50,6 +50,17 @@ static int ui_path(uintptr_t p,const char *path){
 }
 static void ui_pane(uint64_t *r,int param) {
  (void)param;static uintptr_t base; if(!base)base=main_base();uintptr_t p=r[0];if(!base||!p)return;
+ // Observe the authored title prompt before any aspect adaptation. In the
+ // verified 3.0.3 Pane::Calculate ABI, flag bit 0 is visibility, +0x59 alpha.
+ // Inspect local ancestors: global alpha can still belong to the prior frame.
+ if(ui_path(p,"RootPane/L_BtnPressA_00") && ui_float(p,0x50)==600.f && ui_float(p,0x54)==920.f){
+  int visible=1;uintptr_t node=p;
+  for(int depth=0;node&&depth<32;depth++,node=*(uintptr_t*)(node+0x18)){
+   if(!(*(uint8_t*)(node+0x58)&1)||!*(uint8_t*)(node+0x59)){visible=0;break;}
+  }
+  if(node)visible=0;
+  atomic_store_explicit(&title_prompt_frame,visible?dm_nvn_frame_count()+1:0,memory_order_release);
+ }
  float k=wanted()/(16.f/9.f),ex=fmaxf(1.f,k),ey=fmaxf(1.f,1.f/k);uintptr_t vt=*(uintptr_t*)p-base,parent=*(uintptr_t*)(p+0x18);
  int plain=vt==0x474d1f8||vt==0x4a85590||vt==0x4a860d8,parts=vt==0x474d310||vt==0x4a8f128;
  int picture=vt==0x474d418||vt==0x474de58||vt==0x4a87220;

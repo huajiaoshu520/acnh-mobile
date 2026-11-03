@@ -501,6 +501,19 @@ int main(void) {
 
 
     CHECK(setenv("DM_RUMBLE_LOG", "1", 1) == 0, "enable rumble diagnostics");
+    // Companion navigation is an independent source: reset cannot release
+    // a real controller button, and short pulses survive until one HID read.
+    g_mode=1;dm_pad_players(2);dm_input_set(DM_BTN_X,0,0,0,0);dm_pad_set(DM_BTN_B,0,0,0,0);
+    dm_hid_companion_set(DM_BTN_A);
+    CHECK(buttons_of(0,STYLE_FULLKEY)==(DM_BTN_A|DM_BTN_B|DM_BTN_X),"companion merges with physical buttons");
+    CHECK(!(buttons_of(1,STYLE_FULLKEY)&DM_BTN_A),"companion stays on player one");
+    dm_hid_companion_reset();
+    CHECK(buttons_of(0,STYLE_FULLKEY)==(DM_BTN_B|DM_BTN_X),"reset preserves physical input");
+    dm_input_set(0,0,0,0,0);dm_pad_set(0,0,0,0,0);buttons_of(0,STYLE_FULLKEY);
+    dm_hid_companion_set(DM_BTN_A);dm_hid_companion_set(0);
+    CHECK(buttons_of(0,STYLE_FULLKEY)==DM_BTN_A && buttons_of(0,STYLE_FULLKEY)==0,"short companion pulse read exactly once");
+    dm_hid_companion_set(~0ull);CHECK(buttons_of(0,STYLE_FULLKEY)==0xf1c7,"only navigation buttons allowed");
+    dm_hid_companion_reset();dm_pad_players(0);
     t_slots();
     t_npads();
     t_script();

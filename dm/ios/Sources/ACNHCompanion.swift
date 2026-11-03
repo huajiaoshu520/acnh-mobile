@@ -67,6 +67,8 @@ struct CompanionMarker: Identifiable {
     func poll() {
         guard presented else { return }
         var next = read()
+        let titleReady = (next["host.title.ready"] as? NSNumber)?.boolValue == true
+        next["host.title.prompt"] = titleReady ? companionText("Press A") : ""
         next["bag.can_write"] = 0; next["bag.can_use"] = 0
         if !(next as NSDictionary).isEqual(to: values) { values = next }
         let name=text("island.name")
