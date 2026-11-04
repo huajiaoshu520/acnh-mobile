@@ -1,6 +1,6 @@
 # ACNH Mobile
 
-**0.3.115 · build 124 — official Metal 4 edition, iOS 26+.**
+**0.3.119 · build 128 — official Metal 4 edition, iOS 26+.**
 
 Portrait companion now enables checked pocket moves, item actions, sorting and tool-ring interactions for the matching ACNH 3.0.3 build. Lower-screen Press A remains gated by upper-screen title readiness. Real iPad/Duo interaction verification is pending.
 
@@ -8,7 +8,7 @@ Startup → Personalization includes Game volume (0–100%, default 100%). Game 
 
 Optional iCloud Drive save sharing is available in the iPhone and Mac launchers; choose the same folder on both devices. Replaced saves are backed up locally.
 
-Experimental same-Wi-Fi local networking is included as an ACNH-only patch. LiveContainer + SideStore users must update to the LAN-enabled host attached to this release and allow local network access. [Release notes](docs/RELEASE-v0.3.112.zh-CN.md).
+Experimental same-Wi-Fi local networking is included as an ACNH-only patch. LiveContainer + SideStore users must update to the LAN-enabled host attached to this release and allow local network access. [Release notes](docs/RELEASE-v0.3.119.zh-CN.md).
 A native compatibility runtime for Animal Crossing: New Horizons 3.0.3. The runtime and shader translation sources are based on [NXNative](https://github.com/seedds/nxnative) commit `742c9fb83c3719674720ede99da6c1bc997904da`.
 
 This edition uses the official Metal 4 replay path and matching shader chain. It retains ACNH's icon touch controls, tool wheel, physical controllers, R/field-triggered Chinese text input, direct external `.data` access, transactional saves, amiibo file import, Photos export and bounded haptics. Custom touch layouts can be edited from startup settings; there is no added in-game typing toolbar.
@@ -49,7 +49,7 @@ The private embedded build and game-free shell compile in Release. The shell has
 
 ## GitHub builds
 
-Actions → **Validate and publish ACNH Mobile** → Run workflow on `main`. Leave **publish** off for artifacts only; enable it to create the release matching `config/version.json` after successful build and audits. A `v*` tag also builds and publishes. Existing releases are never overwritten. This edition publishes one iOS 26 shell; historical releases and compatibility branches remain available.
+Actions → **Validate and publish ACNH Mobile** → Run workflow on `main`. Leave **publish** off for artifacts only; enable it to create the release matching `config/version.json` after successful build and audits. A `v*` tag also builds and publishes. Existing releases are never overwritten. The only public attachment is the LiveContainer + SideStore LAN host IPA; historical releases remain available.
 
 Credits and licenses: [NXNative](https://github.com/seedds/nxnative), [D2R Mobile](https://github.com/jhaizhou-ops/d2r-mobile), [LICENSE](LICENSE), [third-party notices](THIRD_PARTY_NOTICES.md). Not affiliated with Nintendo.
 
@@ -69,6 +69,6 @@ DLC may also be placed under `game-directory/dlc/` (case-insensitive folder name
 
 ## Portrait companion (local build 121)
 
-iPad portrait and detected foldable portrait displays keep the complete 16:9 game above a six-page read-only companion: Map, Pockets, Critterpedia, DIY, Today and NookPhone. Touch controls occupy the lower area; the bottom page tabs remain available. Returning to landscape or background pauses companion refresh. Existing external `.data` files are reused. Physical iPad and folded Duo behavior still requires device validation.
+iPhone uses landscape only, including the custom-control editor; it does not activate the upper/lower companion layout. iPad portrait and supported non-phone foldable portrait displays keep the complete 16:9 game above a six-page read-only companion: Map, Pockets, Critterpedia, DIY, Today and NookPhone. Touch controls occupy the lower area; the bottom page tabs remain available. Returning to landscape or background pauses companion refresh. Existing external `.data` files are reused. Physical iPad and folded Duo behavior still requires device validation.
 
 The companion is adapted from [AnimalDuo](https://github.com/ShawndYang/AnimalDuo) and Eden Duo. Their GPL-3.0-or-later notices are retained in `dm/third_party/eden_duo`; combined distributions including this companion follow GPL-3.0-or-later. Original NXNative files retain their original notices. No game assets are supplied by the companion source.

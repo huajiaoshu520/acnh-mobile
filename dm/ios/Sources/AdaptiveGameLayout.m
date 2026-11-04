@@ -7,12 +7,17 @@ static char hingeKey,observerKey,partialKey;
 BOOL acnh_has_hinge(UIView *view) {
  return [objc_getAssociatedObject(view.window.windowScene,&hingeKey) boolValue];
 }
+// Use the device idiom: a host may give an iPhone view iPad traits.
+BOOL acnh_allows_companion(UIView *view) {
+ UIUserInterfaceIdiom device=UIDevice.currentDevice.userInterfaceIdiom;
+ return device!=UIUserInterfaceIdiomPhone && (device==UIUserInterfaceIdiomPad||acnh_has_hinge(view));
+}
 CGFloat acnh_view_display_scale(UIView *view) {
  CGFloat scale=acnh_has_hinge(view)?view.traitCollection.displayScale:view.window.windowScene.screen.nativeScale;
  return scale>0?scale:MAX(1,view.traitCollection.displayScale);
 }
 static BOOL tabletop(UIView *view,CGRect *upper,CGRect *lower) {
- if(!acnh_has_hinge(view)||![objc_getAssociatedObject(view.window.windowScene,&partialKey) boolValue])return NO;
+ if(!acnh_allows_companion(view)||!acnh_has_hinge(view)||![objc_getAssociatedObject(view.window.windowScene,&partialKey) boolValue])return NO;
 #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 270100
  if(@available(iOS 27.1,*)) {
   CGRect divisions[16];int count=0;
@@ -27,7 +32,7 @@ BOOL acnh_tabletop_active(UIView *view) { CGRect top,bottom;return tabletop(view
 // Portrait companion uses the safe visible display, including a folded outer screen.
 BOOL acnh_portrait_companion_active(UIView *view) {
  CGRect b=UIEdgeInsetsInsetRect(view.bounds,view.safeAreaInsets);
- return (view.traitCollection.userInterfaceIdiom==UIUserInterfaceIdiomPad||acnh_has_hinge(view)) && b.size.height>b.size.width && b.size.width>0;
+ return acnh_allows_companion(view) && b.size.height>b.size.width && b.size.width>0;
 }
 BOOL acnh_companion_controls_active(UIView *view) {
  UIViewController *controller=view.window.rootViewController;
@@ -49,16 +54,16 @@ CGRect acnh_game_viewport(UIView *view) {
   CGRect b=UIEdgeInsetsInsetRect(view.bounds,view.safeAreaInsets);
   b.size.height=b.size.width*9./16.;return b;
  }
- CGRect b=view.bounds;
- if(acnh_has_hinge(view))b=UIEdgeInsetsInsetRect(b,view.safeAreaInsets);
- return b;
+ // Hinge capability alone does not mean this scene is split. Landscape
+ // uses the full canvas; actual portrait/tabletop layouts returned above.
+ return view.bounds;
 }
 BOOL acnh_expanded_view_active(UIView *view) {
- if(acnh_portrait_companion_active(view))return NO;
+ if(acnh_portrait_companion_active(view)||acnh_tabletop_active(view))return NO;
  CGRect b=acnh_game_viewport(view);
- UIUserInterfaceIdiom idiom=view.traitCollection.userInterfaceIdiom;
+ UIUserInterfaceIdiom idiom=UIDevice.currentDevice.userInterfaceIdiom;
  return acnh_expanded_view_eligible(idiom==UIUserInterfaceIdiomPhone?1:idiom==UIUserInterfaceIdiomPad?2:0,
-     acnh_has_hinge(view),acnh_display_mode(),b.size.width,b.size.height);
+     0,acnh_display_mode(),b.size.width,b.size.height);
 }
 
 CGRect acnh_game_frame(UIView *view) {
@@ -73,7 +78,9 @@ CGRect acnh_pad_frame(UIView *view) {
  }
  CGRect top,bottom;
  if(tabletop(view,&top,&bottom))return bottom;
- return acnh_has_hinge(view)?acnh_fit_game(acnh_game_viewport(view)):view.bounds;
+ // Landscape controls use the entire display, independently of the game
+ // aspect ratio. Portrait and tabletop retain their lower-screen canvas.
+ return view.bounds;
 }
 void acnh_observe_display(UIView *view) {
 #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 270100

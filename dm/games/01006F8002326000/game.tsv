@@ -28,7 +28,7 @@ shader_versions	v2228224
 # load order as on Horizon: main, subsdk*, sdk (subsdk0 = NintendoSDK_movie)
 modules	main subsdk0 sdk
 romfs_marker	Movie/OpeningMovie.webm
-zip_store	.barslistpack:.bwav:.pack:.srsizetable:.szs:.webm:.xtx:.zs:.metallib
+zip_store	.barslistpack:.bwav:.pack:.srsizetable:.szs:.webm:.xtx:.zs
 
 # ---- Memory ----
 # The NPDM declares no system resource (META +0x14 = 0): nninitStartup sets a heap. The 4 GB block of the other games without virtual address memory

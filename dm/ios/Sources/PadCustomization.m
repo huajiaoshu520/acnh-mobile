@@ -51,21 +51,34 @@ static NSString *L(NSString *en,NSString *zh){return [NSLocale.preferredLanguage
 // The editor is a full-screen modal, so it must declare its own directions;
 // it does not inherit the landscape launcher's orientation policy.
 - (UIInterfaceOrientationMask)supportedInterfaceOrientations{
- return (self.traitCollection.userInterfaceIdiom==UIUserInterfaceIdiomPad||acnh_has_hinge(self.view))?UIInterfaceOrientationMaskAllButUpsideDown:UIInterfaceOrientationMaskLandscape;
+ return acnh_allows_companion(self.view)?UIInterfaceOrientationMaskAllButUpsideDown:UIInterfaceOrientationMaskLandscape;
 }
 - (UIInterfaceOrientation)preferredInterfaceOrientationForPresentation{
  UIInterfaceOrientation current=self.presentingViewController.view.window.windowScene.interfaceOrientation;
- if((self.traitCollection.userInterfaceIdiom==UIUserInterfaceIdiomPad||acnh_has_hinge(self.presentingViewController.view))&&current!=UIInterfaceOrientationUnknown)return current;
+ if(acnh_allows_companion(self.presentingViewController.view)&&current!=UIInterfaceOrientationUnknown)return current;
  return UIInterfaceOrientationIsLandscape(current)?current:UIInterfaceOrientationLandscapeRight;
 }
 - (BOOL)shouldAutorotate{return YES;}
 - (void)viewDidAppear:(BOOL)animated{
  [super viewDidAppear:animated];[self setNeedsUpdateOfSupportedInterfaceOrientations];
+ [self.view setNeedsLayout];[self.view layoutIfNeeded];
  UIWindowScene *scene=self.view.window.windowScene;
- if(UIDevice.currentDevice.userInterfaceIdiom==UIUserInterfaceIdiomPhone&&!acnh_has_hinge(self.view)&&scene&&!UIInterfaceOrientationIsLandscape(scene.interfaceOrientation)){
+ if(!acnh_allows_companion(self.view)&&scene&&!UIInterfaceOrientationIsLandscape(scene.interfaceOrientation)){
   UIWindowSceneGeometryPreferencesIOS *geometry=[[UIWindowSceneGeometryPreferencesIOS alloc]initWithInterfaceOrientations:UIInterfaceOrientationMaskLandscape];
   [scene requestGeometryUpdateWithPreferences:geometry errorHandler:^(NSError *error){NSLog(@"Pad editor landscape request: %@",error.localizedDescription);}];
  }
+}
+- (void)viewSafeAreaInsetsDidChange{
+ [super viewSafeAreaInsetsDidChange];[self.view setNeedsLayout];
+}
+- (void)viewWillTransitionToSize:(CGSize)size withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator{
+ [super viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
+ [coordinator animateAlongsideTransition:^(id<UIViewControllerTransitionCoordinatorContext> context){
+  [self.view setNeedsLayout];[self.view layoutIfNeeded];
+ } completion:^(id<UIViewControllerTransitionCoordinatorContext> context){
+  // Recompute from final modal bounds, not the presentation/rotation snapshot.
+  [self.view setNeedsLayout];[self.view layoutIfNeeded];
+ }];
 }
 - (void)viewDidLoad{
  [super viewDidLoad];self.view.backgroundColor=[UIColor colorWithRed:.05 green:.13 blue:.15 alpha:1];acnh_observe_display(self.view);
@@ -74,7 +87,7 @@ static NSString *L(NSString *en,NSString *zh){return [NSLocale.preferredLanguage
  _lowerPreview=[UIView new];_lowerPreview.backgroundColor=[UIColor colorWithWhite:.13 alpha:1];_lowerPreview.layer.cornerRadius=10;[self.view addSubview:_lowerPreview];
  _gameLabel=[UILabel new];_gameLabel.text=L(@"Game screen · 16:9",@"游戏画面 · 16:9");_gameLabel.textColor=UIColor.lightGrayColor;_gameLabel.textAlignment=NSTextAlignmentCenter;[_gamePreview addSubview:_gameLabel];
  _lowerLabel=[UILabel new];_lowerLabel.text=L(@"Lower screen · drag controls here",@"下屏 · 在此拖动按键");_lowerLabel.textColor=UIColor.lightGrayColor;_lowerLabel.textAlignment=NSTextAlignmentCenter;[_lowerPreview addSubview:_lowerLabel];
- _pad=(id)([self.base isEqual:@"generic"]?dm_generic_gamepad_view(self.view.bounds):dm_acnh_gamepad_preview(self.view.bounds));_pad.userInteractionEnabled=NO;[self.view addSubview:_pad];
+ _pad=(id)([self.base isEqual:@"generic"]?dm_generic_gamepad_view(self.view.bounds):dm_acnh_gamepad_preview(self.view.bounds));_pad.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;_pad.userInteractionEnabled=NO;[self.view addSubview:_pad];
  _handles=[NSMutableArray array];
  _panel=[UIView new];_panel.backgroundColor=[UIColor colorWithWhite:.08 alpha:.96];_panel.layer.cornerRadius=14;[self.view addSubview:_panel];
  _title=[UILabel new];_title.text=L(@"Drag controls; drag this panel to move it",@"拖动按键调整位置，也可拖动此面板");_title.userInteractionEnabled=YES;[_title addGestureRecognizer:[[UIPanGestureRecognizer alloc]initWithTarget:self action:@selector(movePanel:)]];_title.font=[UIFont systemFontOfSize:12];_title.textColor=UIColor.whiteColor;_title.textAlignment=NSTextAlignmentCenter;[_panel addSubview:_title];

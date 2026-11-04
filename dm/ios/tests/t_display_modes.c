@@ -30,6 +30,8 @@ int main(void) {
   assert(fabs(q.x-.5)<.002&&fabs(q.y-.5)<.002);
   if(mode==ACNH_DISPLAY_CROP)assert(CGRectContainsRect(image,screens[i]));
  }
+ // Reported landscape regression: hinge-capable scene, not an active split.
+ assert(acnh_expanded_view_eligible(1,0,ACNH_DISPLAY_AUTO,874,402));
  assert(acnh_expanded_view_eligible(1,0,ACNH_DISPLAY_AUTO,932,430));
  assert(!acnh_expanded_view_eligible(0,0,ACNH_DISPLAY_AUTO,1366,768));
  assert(!acnh_expanded_view_eligible(0,0,ACNH_DISPLAY_AUTO,1400,600));

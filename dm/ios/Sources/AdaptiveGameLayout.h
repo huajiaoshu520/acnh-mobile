@@ -4,6 +4,7 @@
 // Hinge capability gates all Duo-only placement changes. Layout uses current view geometry.
 void acnh_observe_display(UIView *view);
 BOOL acnh_has_hinge(UIView *view);
+BOOL acnh_allows_companion(UIView *view);
 int acnh_display_mode(void);
 BOOL acnh_expanded_view_active(UIView *view);
 CGRect acnh_game_viewport(UIView *view);

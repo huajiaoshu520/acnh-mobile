@@ -2,7 +2,7 @@
 """Fetch pinned, source-only NX profiles into CI scratch space for generic regression fixtures."""
 import io,os,tarfile,urllib.request
 from pathlib import Path
-REV='68e8dc23587ccae209e0dbcaee34f0677e81aac5'
+REV='75e5ddd8046dc70f740780a14d336dc2f2cf1d7b'
 def main():
  root=Path(os.environ['RUNNER_TEMP'])/'nxnative-test-reference'
  root.mkdir(parents=True,exist_ok=True)

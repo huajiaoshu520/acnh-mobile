@@ -36,3 +36,8 @@ Build 118 后续复核到 7d260eef62a8：追加 3104c0af621c 的提前密钥校�
 Build 119 / 构建119：补入官方 fefb16d18757 的 primitive-ID 运行时预构建与离线管线排除规则，并按依赖选取 0a759de7864b 的反射标记生成/解析及整管线构建路径。读取 primitive ID 的片元程序使用完整管线，避免从开放颜色状态的基础管线特化后 ID 错误为零。仅选择这些依赖，不代表同步 0a759de7864b 整个提交。配套反射缓存重新生成，链更新为 55b6fe4e578d；保留现有翻译器版本与动森专属功能。
 
 Build 124 / 构建124：检查至 50363b14ef9b19d0e8ade35d78812bdc8e7f8b96，按适用文件合入 fa681f94065e（watchdog 采样路径）、6a16b7d3c52d（CPU 写入 3D 纹理初次上传）、cd7f38032968（纹理描述符单次释放）、5a07ff2ce1ee（Mac 输入框焦点）、998896aca3bc（Mac 打包 AppleDouble 清理）、b3b38f4bf381（Mac 系统全屏快捷键）、229fc22cd8f5（稀疏纹理每次提交检查）、50363b14ef9b（3D 捕获深度切片）。非整树同步；配套着色器链仍为55b6fe4e578d。保留123副屏功能。
+
+
+## 0.3.119 / 128
+
+Checked upstream through 75e5ddd8046dc70f740780a14d336dc2f2cf1d7b; this is a reviewed subset, not a whole-tree merge. Imported 1b94fab2, 5e62e207, e2ab03aa, 65cc2af4, b1c20372, 6ddeda92, db8acc5c, de159bcb, 4e5582eb, 8fc76577, 79774e76 and 733dff9d. Existing matching shader chain remains unchanged. Generic CI profile fixtures are pinned to the reviewed revision in scratch storage and are not shipped as other game profiles. Includes local landscape/controller/adaptive-layout corrections from builds 125–127 and compressed packaging.

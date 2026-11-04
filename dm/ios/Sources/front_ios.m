@@ -236,6 +236,12 @@ static void launcher_done(void) { [g_root startGame]; }
 }
 - (void)viewDidAppear:(BOOL)a {
     [super viewDidAppear:a];UIApplication.sharedApplication.idleTimerDisabled=YES;
+    [self setNeedsUpdateOfSupportedInterfaceOrientations];
+    UIWindowScene *scene=self.view.window.windowScene;
+    if(!acnh_allows_companion(self.view)&&scene&&!UIInterfaceOrientationIsLandscape(scene.interfaceOrientation)) {
+        UIWindowSceneGeometryPreferencesIOS *geometry=[[UIWindowSceneGeometryPreferencesIOS alloc]initWithInterfaceOrientations:UIInterfaceOrientationMaskLandscape];
+        [scene requestGeometryUpdateWithPreferences:geometry errorHandler:^(NSError *error){NSLog(@"Game landscape request: %@",error.localizedDescription);}];
+    }
     if(self.preparing || self.game)return;self.preparing=YES;
     // Make the shared Documents directory nonempty even before game resources
     // are imported (and in a game-free shell), so Files has a visible target.
@@ -262,7 +268,7 @@ static void launcher_done(void) { [g_root startGame]; }
 - (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
 - (UIRectEdge)preferredScreenEdgesDeferringSystemGestures { return UIRectEdgeAll; }   // Edge gestures need two swipes, to avoid accidental exits
 - (BOOL)prefersStatusBarHidden { return YES; }
-- (UIInterfaceOrientationMask)supportedInterfaceOrientations { return (acnh_has_hinge(self.view)||self.traitCollection.userInterfaceIdiom==UIUserInterfaceIdiomPad)?UIInterfaceOrientationMaskAllButUpsideDown:UIInterfaceOrientationMaskLandscape; }
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations { return acnh_allows_companion(self.view)?UIInterfaceOrientationMaskAllButUpsideDown:UIInterfaceOrientationMaskLandscape; }
 @end
 UIViewController *front_ios_root(void) { return [DmRootVC new]; }
 
