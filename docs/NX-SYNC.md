@@ -45,3 +45,7 @@ Checked upstream through 75e5ddd8046dc70f740780a14d336dc2f2cf1d7b; this is a rev
 ## 0.3.121 / 130
 
 Reviewed upstream through 13da1c52e6578947b913c9a5bb904311734f298a. Imported the macOS DualShock 4 routing fix and regression tests from 02b0b662a603, and applied the renderer allocation checks from a27d684b1e64 to the matching tables in this tree. The paired shader chain remains 55b6fe4e578d.
+
+## 0.3.122 / 131
+
+Reviewed upstream through 975bb4c14456d145eb3d969814534eecdd996ce9. Imported the Mac app replacement fallback from 5061b2a174 and adapted the case-insensitive input scan from 7dc00e4d2b to preserve ACNH's DLC directory handling. The paired shader chain remains 55b6fe4e578d.

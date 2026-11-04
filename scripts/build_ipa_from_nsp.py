@@ -538,7 +538,7 @@ def scan_nsps(nsp_dir, from_package=None, contents_of=None, want=None, *, dlc_su
         if low == 0: f['base'] = p
         elif low == 0x800: f['updates'].append((version, p))
         else: f['dlc'].append((tid, version, p))
-    for p in sorted([*nsp_dir.glob('*.nsp'), *nsp_dir.glob('*.xci'), *nsp_dir.glob('*.nsz'), *nsp_dir.glob('*.xcz'), *nested]):   # a base game may be a cartridge dump (.xci: Monster Hunter Rise); nx_extract reads its secure partition
+    for p in sorted([*[p for p in nsp_dir.iterdir() if p.is_file() and p.suffix.lower() in ('.nsp', '.xci', '.nsz', '.xcz')], *nested]):   # a base game may be a cartridge dump (.xci: Monster Hunter Rise); nx_extract reads its secure partition
         if p.name.startswith('._'): continue   # an AppleDouble file: on an exFAT / FAT drive macOS keeps a file's extended attributes (a download's quarantine flag) in `._<name>`, one beside each game file; is_package would skip it too, with a line for each
         if p.stat().st_size == 0:   # an empty file left by an incomplete download (the Zelda BotW folder holds a 0-byte DLC NSP next to the complete (1).nsp)
             say(f'skipping an empty file: {p.name}'); continue
