@@ -41,3 +41,7 @@ Build 124 / 构建124：检查至 50363b14ef9b19d0e8ade35d78812bdc8e7f8b96，按
 ## 0.3.119 / 128
 
 Checked upstream through 75e5ddd8046dc70f740780a14d336dc2f2cf1d7b; this is a reviewed subset, not a whole-tree merge. Imported 1b94fab2, 5e62e207, e2ab03aa, 65cc2af4, b1c20372, 6ddeda92, db8acc5c, de159bcb, 4e5582eb, 8fc76577, 79774e76 and 733dff9d. Existing matching shader chain remains unchanged. Generic CI profile fixtures are pinned to the reviewed revision in scratch storage and are not shipped as other game profiles. Includes local landscape/controller/adaptive-layout corrections from builds 125–127 and compressed packaging.
+
+## 0.3.121 / 130
+
+Reviewed upstream through 13da1c52e6578947b913c9a5bb904311734f298a. Imported the macOS DualShock 4 routing fix and regression tests from 02b0b662a603, and applied the renderer allocation checks from a27d684b1e64 to the matching tables in this tree. The paired shader chain remains 55b6fe4e578d.
