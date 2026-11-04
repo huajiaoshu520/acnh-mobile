@@ -150,7 +150,8 @@ static void pads_start(void);
 }
 // Only actual controls claim lower-panel touches; pages and their footer remain interactive.
 - (BOOL)pointInside:(CGPoint)p withEvent:(UIEvent *)event {
- if(!acnh_companion_controls_active(self))return [super pointInside:p withEvent:event];
+ if(![super pointInside:p withEvent:event])return NO;
+ if(!acnh_companion_controls_active(self))return YES;
  return [self buttonAt:p]>=0 || distance(p,self.stickHome)<=self.stickR*1.15 || distance(p,[self buttonCenter:B_RS])<=[self radius:B_RS]*1.15;
 }
 - (void)toolTick:(CADisplayLink *)link{[self recompute];}

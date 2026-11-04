@@ -259,7 +259,9 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
 }
 
 - (BOOL)pointInside:(CGPoint)p withEvent:(UIEvent *)event {
- if(!acnh_companion_controls_active(self))return [super pointInside:p withEvent:event];
+ // The companion footer is a sibling below the pad and must receive its own taps.
+ if(![super pointInside:p withEvent:event])return NO;
+ if(!acnh_companion_controls_active(self))return YES;
  if(_padOff||_tap)return NO;
  return [self btnAt:p]>=0 || [self inSwap:p] || [self faceAt:p] || dist(p,self.stickHome)<=[self stickR:0]*K_STICK_GRAB || (_full && (dist(p,self.dpadCenter)<=self.dpadR*K_DPAD_GRAB || ([self inRightArea:p] && p.y>self.bounds.size.height*.45)));
 }
