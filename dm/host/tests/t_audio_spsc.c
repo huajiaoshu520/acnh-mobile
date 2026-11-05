@@ -75,7 +75,7 @@ static void *consumer(void *p) {
         uint64_t n = 1 + next_random(&state) % 512;
         if (n > avail) n = avail;
         if (done + n == t->total_bytes) atomic_store(&g_last_pull, 1);
-        pull(t->a, t->scratch, n, 1);
+        pull(t->a, t->scratch, n);
         for (uint64_t i = 0; i < n; i++) {
             if (t->scratch[i] != (uint8_t)(want++)) atomic_store(&t->failed, 1);
         }
@@ -104,7 +104,7 @@ static int stop_pending(void) {
     atomic_store(&a->q_head, UINT32_MAX-2); atomic_store(&a->q_tail, UINT32_MAX-2);
     atomic_store(&a->rel_head, UINT32_MAX-1); atomic_store(&a->rel_tail, UINT32_MAX-1);
     for (int i=0; i<5; i++) { buffers[i].ptr=bytes[i]; buffers[i].size=buffers[i].cap=8; if (!h_au_Append(out,&buffers[i])) return 1; }
-    pull(a,played,sizeof played, 1);   // one released buffer followed by a partly played one
+    pull(a,played,sizeof played);   // one released buffer followed by a partly played one
     a->rel_sem=dispatch_semaphore_create(0);
     h_au_Stop(out);
     int failed = h_au_BufCount(out)!=0 || a->pos!=0 || dispatch_semaphore_wait(a->rel_sem,dispatch_time(DISPATCH_TIME_NOW,100000000))!=0;

@@ -26,7 +26,6 @@ DM_SHOW_FPS	toggle	-	build:DM_SHOW_FPS	platform:ios	Game	Frame-rate counter
 ACNH_CONTROLLER_LAYOUT	choice	generic=Generic,acnh=Dedicated,custom=Custom	acnh	platform:ios	Controls	Controller layout
 ACNH_CUSTOM_BASE	choice	generic=Generic,acnh=Dedicated	acnh	platform:ios	Controls	Customize from		needs=ACNH_CONTROLLER_LAYOUT=custom
 ACNH_AUDIO_IGNORE_SILENT	toggle	-	0	platform:ios	Controls	Play sound in silent mode
-ACNH_AUDIO_VOLUME	range	0:1:0.05	1.0	platform:ios	Controls	Game volume
 DM_TOUCH_HAPTICS	toggle	-	1	platform:ios	Controls	Touch feedback
 DM_RUMBLE	toggle	-	1	always	Controls	Game rumble		level=basic
 DM_RUMBLE_GAIN	range	0:3:0.1	1.0	always	Controls	Rumble strength		needs=DM_RUMBLE=1

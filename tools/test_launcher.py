@@ -12,7 +12,7 @@ class LauncherTests(unittest.TestCase):
     def test_acnh_hides_unimplemented_fps_and_scale(self):
         with tempfile.TemporaryDirectory() as t:
             d=settings.build('01006F8002326000',t,Path(t)/'missing.nacp')
-            self.assertEqual({s['env'] for s in d['settings']},{'ACNH_DISPLAY_MODE','DM_PSO_MTL4','DM_PSO_PREBUILD','DM_NVN_ENC_THREAD','DM_PRESENT_UPSCALE','DM_RUMBLE_MIN','DM_PRESENT_SNAP','DM_OPMODE','DM_SHOW_FPS','DM_METAL_HUD','ACNH_CONTROLLER_LAYOUT','ACNH_AUDIO_IGNORE_SILENT','ACNH_AUDIO_VOLUME','ACNH_CUSTOM_BASE','DM_TOUCH_HAPTICS','DM_RUMBLE','DM_RUMBLE_GAIN'})
+            self.assertEqual({s['env'] for s in d['settings']},{'ACNH_DISPLAY_MODE','DM_PSO_MTL4','DM_PSO_PREBUILD','DM_NVN_ENC_THREAD','DM_PRESENT_UPSCALE','DM_RUMBLE_MIN','DM_PRESENT_SNAP','DM_OPMODE','DM_SHOW_FPS','DM_METAL_HUD','ACNH_CONTROLLER_LAYOUT','ACNH_AUDIO_IGNORE_SILENT','ACNH_CUSTOM_BASE','DM_TOUCH_HAPTICS','DM_RUMBLE','DM_RUMBLE_GAIN'})
     def test_official_performance_defaults_and_typed_toggles(self):
         with tempfile.TemporaryDirectory() as t:
             rows={s['env']:s for s in settings.build('01006F8002326000',t,Path(t)/'missing.nacp')['settings']}
@@ -47,13 +47,6 @@ class LauncherTests(unittest.TestCase):
             self.assertEqual(row['options'],[['generic','Generic'],['acnh','Dedicated']])
             self.assertEqual(row['note'],'')
             self.assertEqual(row['needs'],'ACNH_CONTROLLER_LAYOUT=custom')
-    def test_game_volume_range(self):
-        with tempfile.TemporaryDirectory() as t:
-            row=next(s for s in settings.build('01006F8002326000',t,Path(t)/'missing.nacp')['settings'] if s['env']=='ACNH_AUDIO_VOLUME')
-            self.assertEqual(row['kind'],'range')
-            self.assertEqual(row['default'],'1.0')
-            self.assertEqual((row['min'],row['max'],row['step']),(0.0,1.0,0.05))
-            self.assertEqual(row['section'],'Controls')
     def test_silent_mode_audio_is_opt_in(self):
         with tempfile.TemporaryDirectory() as t:
             row=next(s for s in settings.build('01006F8002326000',t,Path(t)/'missing.nacp')['settings'] if s['env']=='ACNH_AUDIO_IGNORE_SILENT')

@@ -433,15 +433,14 @@ void front_save_failed(int err) {
 
 // Audio session: the frames RemoteIO asks for in each callback follow the I/O buffer duration, about 21 ms by default on iOS (1024 frames at 48 kHz). The game keeps only 4 blocks × 5 ms = 20 ms in flight,
 // so every callback came up 1.3 ms short and was zero-filled, about 47 gaps per second (crackling; reproducible on the Mac by forcing 1024-frame callbacks: 1999 underruns in 2000 callbacks). Ask for 5 ms and the system picks the nearest it supports;
-// Ambient mixes with other apps and follows the silent switch by default; the launcher can select Playback to hear game audio in silent mode. Set once at boot and again after foreground/interruption recovery.
+// SoloAmbient follows the silent switch by default; the launcher can select Playback to hear game audio in silent mode. Set once at boot and again after foreground/interruption recovery.
 static int g_session_off;   // the last activation failed (another app or a call still held the session): tried again when the app becomes active
 void front_ios_audio_session(void) {
     AVAudioSession *s = AVAudioSession.sharedInstance; NSError *e = nil;
     const char *setting = getenv("ACNH_AUDIO_IGNORE_SILENT");
     BOOL ignoreSilent = setting && !strcmp(setting, "1");
-    NSString *category = ignoreSilent ? AVAudioSessionCategoryPlayback : AVAudioSessionCategoryAmbient;
-    AVAudioSessionCategoryOptions options = ignoreSilent ? AVAudioSessionCategoryOptionMixWithOthers : 0;
-    if (![s setCategory:category withOptions:options error:&e]) LOG("[RED] audio session category could not be set: %s", e.localizedDescription.UTF8String);
+    NSString *category = ignoreSilent ? AVAudioSessionCategoryPlayback : AVAudioSessionCategorySoloAmbient;
+    if (![s setCategory:category error:&e]) LOG("[RED] audio session category could not be set: %s", e.localizedDescription.UTF8String);
     [s setPreferredSampleRate:48000 error:nil];
     if (![s setPreferredIOBufferDuration:0.005 error:&e]) LOG("[RED] audio session I/O buffer duration could not be set: %s", e.localizedDescription.UTF8String);
     g_session_off = ![s setActive:YES error:&e];
