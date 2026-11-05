@@ -38,6 +38,9 @@ typedef struct {
     _Atomic uint64_t under_n, under_b; // underruns: times the pending queue was empty when the callback needed data / zero-filled bytes
     uint64_t st_calls, st_count, st_qsum, st_u0, st_ub0; uint32_t st_fmin, st_fmax;   // callback-owned accumulators
     audio_stats st_report; _Atomic int st_pending; // one snapshot, consumed by the watchdog or Close under g_aos_lock
+    uint64_t pcm_prefill_until; // initialized before RemoteIO starts, cleared by its callback
+    uint64_t silent_underruns; // silent sink owns this while running
+    _Atomic uint32_t pcm_peak_frames;  // largest device request in this host output session
     _Atomic uint64_t cb_n;             // device callbacks of this output (the watchdog's evidence that the device still plays it)
     uint64_t wd_n, wd_t;               // watchdog: callback count last seen and when it last moved (under g_aos_lock)
     int stalled, retry_ms; uint64_t retry_at;   // the device stopped calling back (or would not start): the silent sink stands in and the watchdog retries the AudioUnit at retry_at, backing off
@@ -89,14 +92,17 @@ static void *event_notify(void *p) {
 }
 
 // Take n bytes from the pending queue and hand them to the output side; once a whole block has played, move it to released and notify the ordinary thread.
-static void pull(aout *a, uint8_t *dst, uint64_t n) {
+static void pull(aout *a, uint8_t *dst, uint64_t n, int audible) {
     int released = 0;
     int16_t *s16 = (int16_t *)dst; uint64_t ns = n / 2;
     uint32_t qh = atomic_load_explicit(&a->q_head, memory_order_relaxed);
     while (n) {
         uint32_t qt = atomic_load_explicit(&a->q_tail, memory_order_acquire);
         if (qh == qt || atomic_load_explicit(&a->state, memory_order_acquire) != STATE_STARTED) {
-            if (qh == qt && atomic_load_explicit(&a->state, memory_order_acquire) == STATE_STARTED) { atomic_fetch_add(&a->under_n, 1); atomic_fetch_add(&a->under_b, n); }
+            if (qh == qt && atomic_load_explicit(&a->state, memory_order_acquire) == STATE_STARTED) {
+                if (audible) { atomic_fetch_add(&a->under_n, 1); atomic_fetch_add(&a->under_b, n); }
+                else a->silent_underruns++;
+            }
             memset(dst, 0, n); break; }
         gbuf *b = a->q[qh & (QMAX - 1)];
         uint64_t k = b->size - a->pos; if (k > n) k = n;
@@ -129,13 +135,13 @@ static void pull(aout *a, uint8_t *dst, uint64_t n) {
 // in blocks through a stack buffer (no allocation in the real-time callback)
 static int device_channels(const aout *a) { return a->ch == 6 ? 2 : a->ch; }
 static void pull_device_unscaled(aout *a, uint8_t *dst, uint64_t bytes) {
-    if (a->ch != 6) { pull(a, dst, bytes); return; }
+    if (a->ch != 6) { pull(a, dst, bytes, 1); return; }
     enum { BLOCK = 128, CF = 32768, CC = 23167, CL = 8224, CB = 23167 };
     int16_t scratch[BLOCK * 6], *out = (int16_t *)dst;
     uint64_t frames = bytes / (2 * sizeof *out);
     while (frames) {
         uint64_t n = frames < BLOCK ? frames : BLOCK;
-        pull(a, (uint8_t *)scratch, n * 6 * sizeof *scratch);
+        pull(a, (uint8_t *)scratch, n * 6 * sizeof *scratch, 1);
         for (uint64_t i = 0; i < n; i++) {
             const int16_t *p = scratch + 6 * i;
             int64_t c = (int64_t)p[2] * CC + (int64_t)p[3] * CL;
@@ -184,6 +190,22 @@ static OSStatus au_render(void *ctx, AudioUnitRenderActionFlags *f, const AudioT
             atomic_store_explicit(&a->st_pending, 1, memory_order_release);
             a->st_fmin = ~0u; a->st_fmax = 0; a->st_qsum = a->st_count = 0; a->st_u0 = un; a->st_ub0 = ubb;
         } }
+#if TARGET_OS_IOS
+    if (a->rel_sem && frames > atomic_load_explicit(&a->pcm_peak_frames, memory_order_relaxed))
+        atomic_store_explicit(&a->pcm_peak_frames, frames, memory_order_relaxed);
+    if (a->pcm_prefill_until) {
+        uint32_t head = atomic_load_explicit(&a->q_head, memory_order_relaxed);
+        uint32_t tail = atomic_load_explicit(&a->q_tail, memory_order_acquire);
+        uint64_t ready = 0;
+        for (uint32_t i = head; i != tail; i++) ready += a->q[i & (QMAX - 1)]->size;
+        uint64_t requested = (uint64_t)atomic_load_explicit(&a->pcm_peak_frames, memory_order_relaxed) * 4;
+        if (ready < a->pos + requested + 720 * 4 && now_ns() < a->pcm_prefill_until) {
+            memset(bl->mBuffers[0].mData, 0, bl->mBuffers[0].mDataByteSize);
+            return noErr;
+        }
+        a->pcm_prefill_until = 0;
+    }
+#endif
     pull_device(a, bl->mBuffers[0].mData, bl->mBuffers[0].mDataByteSize);
     { static int mute = -1; if (mute < 0) { const char *e = getenv("DM_AUDIO_MUTE"); mute = e && atoi(e); }   // diagnostic: the whole real-output path (AudioUnit callback pacing, background take-over) but with the output silenced (lifecycle tests on the Mac without noise)
       if (mute) memset(bl->mBuffers[0].mData, 0, bl->mBuffers[0].mDataByteSize); }
@@ -274,7 +296,8 @@ static void *null_sink(void *p) {
     while (atomic_load_explicit(&a->null_run, memory_order_acquire)) {
         t += 5000000; uint64_t now = now_ns();
         if (t > now) usleep((useconds_t)((t - now) / 1000)); else if (now - t > 100000000) t = now;
-        pull(a, scratch, bytes);
+        if (!atomic_load_explicit(&a->null_run, memory_order_acquire)) break;
+        pull(a, scratch, bytes, 0);
     }
     return NULL;
 }
@@ -288,6 +311,9 @@ static void backend_stop(aout *a) {
 static int real_audio(void) { const char *e = getenv("DM_AUDIO"); return e ? atoi(e) != 0 : TARGET_OS_IPHONE; }
 // Start the AudioUnit of an output whose backend is BK_NONE (callers hold g_aos_lock). When the device refuses (the session is held by a call, or is being reset), the silent sink stands in and the watchdog retries
 static void au_go(aout *a, uint64_t now) {
+#if TARGET_OS_IOS
+    a->pcm_prefill_until = a->rel_sem && a->ch == 2 ? now_ns() + 80000000 : 0;
+#endif
     OSStatus st = a->au ? AudioOutputUnitStart(a->au) : -1;
     a->wd_n = atomic_load_explicit(&a->cb_n, memory_order_relaxed); a->wd_t = now;
     if (!st) { a->backend = BK_AU; a->stalled = 0; return; }
@@ -549,6 +575,7 @@ void *dm_pcmout_open(int ch) {
 }
 // Wait until the output releases a block, at most ms milliseconds (spurious returns are fine: the caller checks dm_pcmout_released again)
 void dm_pcmout_wait(void *k, int ms) { dispatch_semaphore_wait(ao(k)->rel_sem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)ms * 1000000)); }
+uint32_t dm_pcmout_peak_frames(void *k) { return atomic_load_explicit(&ao(k)->pcm_peak_frames, memory_order_relaxed); }
 void dm_pcmout_start(void *k) { au_start_at(k, NULL); }
 void dm_pcmout_close(void *k) { au_close(k, NULL); free(k); }   // stop, take it out of the registry (frees its AOMAX slot), free it and its key
 int dm_pcmout_append(void *k, void *b) { return (int)h_au_Append(k, b); }
@@ -567,7 +594,12 @@ void dm_audio_suspend(int on) {
             if (on) { if (a->backend == BK_AU) { AudioOutputUnitStop(a->au); null_start(a); } }
             else if (a->backend == BK_NULL) {
                 // The session may still be held by someone else (back in the game with a call not yet hung up): not fatal, the silent sink keeps covering and the watchdog retries
-                null_stop(a); a->stalled = 0; au_go(a, now_ns()); failed |= a->backend != BK_AU; }
+                null_stop(a);
+                if (a->silent_underruns) {
+                    LOG("audio #%d: silent sink had %llu underruns before foreground output", a->id, (unsigned long long)a->silent_underruns);
+                    a->silent_underruns = 0;
+                }
+                a->stalled = 0; au_go(a, now_ns()); failed |= a->backend != BK_AU; }
         }
         LOG("audio %s", on ? "suspended (background / interruption)" : failed ? "resumed, an AudioUnit still refuses to start (retrying)" : "resumed (foreground / interruption ended)");
     }

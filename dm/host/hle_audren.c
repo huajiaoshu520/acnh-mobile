@@ -12,6 +12,7 @@
 // Command list format (SDK 16): header +0x04 command count, +0x08 mix buffer address, +0x10 buffer count, +0x14 samples per frame, +0x18 sample rate, commands from +0x20;
 //   each command +0x00 magic 0xcafebabe, +0x04 enabled, +0x05 command ID (DeviceSink = 0x13), +0x06 size; DeviceSink +0x128 upsampler buffer, +0x130 input count, +0x134 input indices (s16).
 #include "hle.h"
+#include <TargetConditionals.h>
 #include <math.h>
 #include <stdatomic.h>
 #include <time.h>
@@ -25,10 +26,18 @@ void dm_pcmout_start(void *k);
 int dm_pcmout_append(void *k, void *b);
 void *dm_pcmout_released(void *k);
 void dm_pcmout_wait(void *k, int ms);
+uint32_t dm_pcmout_peak_frames(void *k);
 
 // P_SIZE: bytes of the game's AudioRendererParameter copied before the two fields are changed. SDK 16's struct is 0x38 bytes; SDK 8's (Link's Awakening) has one more word,
 // its revision at +0x38: copying only 0x38 left the revision uninitialized and the SDK rejected it (CheckValidRevision, Result 0x499). The SDK reads only its own size of the copy
-enum { P_DEVICE = 0x2c, P_MODE = 0x30, P_SIZE = 0x40, WORK_PAGE = 0x1000, FRAME_MAX = 1024, NBUF = 4 };
+enum { P_DEVICE = 0x2c, P_MODE = 0x30, P_SIZE = 0x40, WORK_PAGE = 0x1000, FRAME_MAX = 1024 };
+#if TARGET_OS_IOS
+// RemoteIO can switch to 1024-frame callbacks while playing. Keep enough
+// 240-frame blocks for one full callback and time for the renderer to refill.
+enum { NBUF = 32, INITIAL_BUFFERS = 8 };
+#else
+enum { NBUF = 4, INITIAL_BUFFERS = 4 };
+#endif
 static void *gsym(const char *n) { void *p = guest_sym(n); if (!p) die("audren: missing SDK symbol %s", n); return p; }
 static void cpu_manual(uint8_t *dst, const uint8_t *src) { memcpy(dst, src, P_SIZE); *(int32_t *)(dst + P_DEVICE) = 1; *(int32_t *)(dst + P_MODE) = 1; }
 
@@ -99,23 +108,38 @@ static void render_main(void *arg) {
     void *out = dm_pcmout_open(2);
     static int16_t data[NBUF][FRAME_MAX * 2]; static gbuf bufs[NBUF]; gbuf *free_list[NBUF]; int nfree = NBUF;
     for (int i = 0; i < NBUF; i++) { bufs[i] = (gbuf){data[i], sizeof data[i], 0}; free_list[i] = &bufs[i]; }
+    int target = INITIAL_BUFFERS;
     dm_pcmout_start(out);
-    LOG("audren: render thread started (%d buffers in flight, paced by the output)", NBUF);
+    LOG("audren: render thread started (%d buffers in flight, paced by the output)", target);
     while (atomic_load(&g_open)) {
-        while (!nfree) {   // wait for the output to hand a block back (silent sink / sound card, one every 5 ms); it signals each release, so the thread sleeps until then (it used to poll every 1 ms)
-            gbuf *b = dm_pcmout_released(out);
-            if (b) { free_list[nfree++] = b; break; }
-            dm_pcmout_wait(out, 10);
-            if (!atomic_load(&g_open)) break;
+#if TARGET_OS_IOS
+        // Keep refill headroom for larger device requests. Retain the high-water
+        // mark until this output closes so intermittent large slices stay covered.
+        uint32_t peak = dm_pcmout_peak_frames(out);
+        int desired = peak > (16 - 3) * 240 ? 32 : peak > (8 - 4) * 240 ? 16 : 8;
+        if (desired > target) {
+            target = desired;
+            LOG("audren: audio buffer tier %d blocks (peak device request %u frames)", target, peak);
         }
-        if (!nfree) break;
+#endif
+        if (NBUF - nfree >= target) {   // wait for the output to hand a block back (silent sink / sound card, one every 5 ms); it signals each release, so the thread sleeps until then (it used to poll every 1 ms)
+            gbuf *b = dm_pcmout_released(out);
+            if (b) free_list[nfree++] = b;
+            else dm_pcmout_wait(out, 10);
+            continue;
+        }
         const int16_t *src; int got;
         uint32_t h = atomic_load(&g_cq_head);
-        if (h != atomic_load(&g_cq_tail)) { src = g_cq[h % CQ]; got = g_cq_n[h % CQ]; atomic_store(&g_cq_head, h + 1); cq_popped(); }   // play queued catch-up output first
-        else { g_frame_n = 0; exec(g_handle[0], g_handle[1]); src = g_frame; got = g_frame_n; }   // SDK: generate commands → CPU processing (output taken in the host takeover) → signal the game's renderer event
+        int catch_up = h != atomic_load(&g_cq_tail);
+        if (catch_up) { src = g_cq[h % CQ]; got = g_cq_n[h % CQ]; }
+        else { g_frame_n = 0; exec(g_handle[0], g_handle[1]); src = g_frame; got = g_frame_n; }
         int n = got ? got : 240;
         gbuf *b = free_list[--nfree];
         if (got) memcpy(b->ptr, src, (size_t)n * 4); else memset(b->ptr, 0, (size_t)n * 4);
+        if (catch_up) {
+            atomic_store(&g_cq_head, h + 1);
+            cq_popped();
+        }
         b->size = (uint64_t)n * 4;
         if (!dm_pcmout_append(out, b)) free_list[nfree++] = b;
     }
