@@ -227,6 +227,13 @@ int main(void) { @autoreleasepool {
     char dir[] = "/tmp/t_pso_warm.XXXXXX"; if (!mkdtemp(dir)) return 1;
     mtl_init();
     if (!fixtures(@(dir))) { fprintf(stderr, "failed to compile synthetic shader fixtures\n"); [NSFileManager.defaultManager removeItemAtPath:@(dir) error:nil]; return 1; }
+    // The prebuild tool's default workers: as many compiles as Metal runs at once, however few cores level 0 has
+    NSUInteger metalTasks = [(id)g_dev respondsToSelector:@selector(maximumConcurrentCompilationTaskCount)] ? g_dev.maximumConcurrentCompilationTaskCount : 0;
+    if (metalTasks >= 2) {
+        EXPECT("prebuild tool workers: Metal's concurrent compiles", metalTasks, compile_tasks());
+    } else {
+        EXPECT("prebuild tool workers: at least two with the CPU fallback", 1, compile_tasks() >= 2);
+    }
     singleflight(@(dir));
     scenario(@(dir), 0); scenario(@(dir), 1);
     const char *mode = getenv("DM_PSO_MTL4");

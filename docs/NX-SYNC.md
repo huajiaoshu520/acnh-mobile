@@ -49,3 +49,7 @@ Reviewed upstream through 13da1c52e6578947b913c9a5bb904311734f298a. Imported the
 ## 0.3.122 / 131
 
 Reviewed upstream through 975bb4c14456d145eb3d969814534eecdd996ce9. Imported the Mac app replacement fallback from 5061b2a174 and adapted the case-insensitive input scan from 7dc00e4d2b to preserve ACNH's DLC directory handling. The paired shader chain remains 55b6fe4e578d.
+
+## 0.3.125 / 148
+
+Reviewed NXNative through `865cc35fad70`. Synchronized the Mac offline pipeline prebuild worker selection from `72d005717b20` and its regression test. The game shader chain remains `55b6fe4e578d`.
