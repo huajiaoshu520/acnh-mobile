@@ -9,6 +9,9 @@ import os
 @_silgen_name("dm_edit_pad_layout")
 private func dmEditPadLayout(_ parent: UnsafeMutableRawPointer, _ base: UnsafePointer<CChar>)
 
+@_silgen_name("front_ios_legacy_bc_mode")
+private func legacyBCMode() -> Int32
+
 private func info(_ key: String) -> Any? { Bundle.main.object(forInfoDictionaryKey: key) }
 private func localized(_ english: String, _ chinese: String) -> String {
     LauncherText.text(english, chinese)
@@ -98,6 +101,7 @@ private struct LauncherView: View {
     @ObservedObject var m: LauncherModel
     let edit: (String) -> Void
     let play: () -> Void
+    private let compatibilityMode = legacyBCMode() != 0
     @State private var personalization = false
     @State private var memory = os_proc_available_memory()
 
@@ -114,6 +118,10 @@ private struct LauncherView: View {
                         .font(.title.weight(.bold)).multilineTextAlignment(.center)
                     Text("\(localized("Version", "版本")) \((info("CFBundleShortVersionString") as? String) ?? "") · \((info("CFBundleVersion") as? String) ?? "")")
                         .font(.callout).foregroundStyle(.secondary)
+                    if compatibilityMode {
+                        Text(localized("Older-device compatibility · Automatically enabled", "旧设备兼容模式 · 已自动启用"))
+                            .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    }
                     ReleaseCheckView()
                     playButton
                 }

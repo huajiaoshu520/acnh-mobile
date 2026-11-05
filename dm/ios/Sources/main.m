@@ -23,11 +23,17 @@ void front_ios_focus_event(int ev);
 
 static char *g_argv[4]; static int g_argc;
 
+int front_ios_legacy_bc_mode(void) {
+    id<MTLDevice> gpu = MTLCreateSystemDefaultDevice();
+    return DM_GAME_TEX_BC_CPU && gpu && gpu.hasUnifiedMemory &&
+           [gpu supportsFamily:MTLGPUFamilyMetal4] && !gpu.supportsBCTextureCompression;
+}
+
 const char *front_ios_device_check(void) {
     static NSString *message; static dispatch_once_t once;
     dispatch_once(&once, ^{
         id<MTLDevice> gpu=MTLCreateSystemDefaultDevice();
-        message=acnh_device_message(gpu!=nil,gpu.supportsBCTextureCompression,gpu.name,NSLocale.preferredLanguages.firstObject);
+        message=acnh_device_message(gpu!=nil,(gpu.supportsBCTextureCompression || front_ios_legacy_bc_mode()),gpu.name,NSLocale.preferredLanguages.firstObject);
         if(message)fprintf(stderr,"[RED] boot: %s\n",message.UTF8String);
     });
     return message.UTF8String;
