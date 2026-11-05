@@ -98,7 +98,11 @@ if [ "$GFXAPI" = nvn ] && [ -n "$GPUS" ] && [ "$GPUS" != none ] && [ -f "$GD/sha
   t "pipeline archive for $GPUS (metal-tt; minutes when its inputs changed)"
   python3 "$DM/gfx/tools/pso_offline.py" --game "$GAME" --msl "$MSL_IOS/b-$V" --out "$PSO" --work "$W/build/ios/pso/work" --gpu "$GPUS" ${DM_PSO_IOS_MIN:+--os-min "$DM_PSO_IOS_MIN"} \
     | while IFS= read -r ln; do t "$ln"; done
-  [ "${PIPESTATUS[0]}" = 0 ] || die "pipeline archive (dm/gfx/tools/pso_offline.py; DM_PSO_GPUS=none builds the app without it)"
+  if [ "${PIPESTATUS[0]}" != 0 ]; then
+    t "[RED] pipeline archive: pso_offline.py failed; the app builds pipeline bases on first start."
+    rm -rf "$PSO"
+    PSO=
+  fi
 else [ "$GFXAPI" != nvn ] || t "no pipeline archive ($([ -n "${DM_PSO_GPUS+set}" ] && echo "DM_PSO_GPUS=${GPUS:-empty}" || echo "the profile does not set pso_mtl4 on; DM_PSO_GPUS=g18p builds one")$([ -f "$GD/shader_pairs.tsv" ] || echo ', no shader_pairs.tsv'))"; fi
 if [ -f "$GD/companion.json" ]; then
   cp "$GD/companion.json" Gen/dm/companion.json || die "copy companion profile"
