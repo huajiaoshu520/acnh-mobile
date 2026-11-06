@@ -6,8 +6,128 @@ static uint64_t test_frame=1;
 uint64_t dm_nvn_frame_count(void){return test_frame;}
 static module_t modules[1];module_t *g_mod=modules;int g_nmod;
 void gate_obs_set(int id,void(*fn)(uint64_t*,int)){assert(id==32||id==33);(void)fn;}
+
+static void screen_art_pane(uint64_t *pane,uintptr_t vt,uintptr_t parent,const char *name,
+                            float width,float height,float x,float y,unsigned origin){
+ uintptr_t p=(uintptr_t)pane;
+ memset(pane,0,40*sizeof(*pane));pane[0]=vt;*(uintptr_t*)(p+0x18)=parent;
+ strcpy((char*)(p+0xb0),name);
+ fput((void*)(p+0x30),x);fput((void*)(p+0x34),y);
+ fput((void*)(p+0x48),1);fput((void*)(p+0x4c),1);
+ fput((void*)(p+0x50),width);fput((void*)(p+0x54),height);
+ *(uint8_t*)(p+0x5b)=origin;
+}
+
+static void hud_asset_cases(uintptr_t base){
+ const struct {const char *name;float x,y;int dx,dy;} cases[]={
+  {"N_InOut_00",-896,514,-1,1}, // MainScreenSmartPhone art
+  {"N_InOut_01",-896,517,-1,1}, // MainScreenSmartPhone ZL prompt
+  {"N_InOut_01",746,-353,1,-1}, // MapMini and CloudIslandMapMini
+  {"N_Pos_00",-800,-430,-1,-1}  // LClock's final composite
+ };
+ const float aspects[]={2868.f/1320.f,4.f/3.f,16.f/9.f};
+ uint64_t root[40],clock[40],clock_root[40],pane[40],r[102]={0};
+ uintptr_t rp=(uintptr_t)root,cp=(uintptr_t)clock,cr=(uintptr_t)clock_root,p=(uintptr_t)pane;
+ for(unsigned i=0;i<sizeof cases/sizeof *cases;i++){
+  memset(ui_records,0,sizeof ui_records);
+  screen_art_pane(root,base+0x474d1f8,0,"RootPane",1920,1080,0,0,0);
+  int embedded_clock=i==3;
+  if(embedded_clock){
+   screen_art_pane(clock,base+0x474d310,rp,"L_Clock_00",2420,1160,0,0,0);
+   screen_art_pane(clock_root,base+0x474d1f8,cp,"RootPane",1920,1080,0,0,0);
+  }
+  screen_art_pane(pane,base+0x474d1f8,embedded_clock?cr:rp,cases[i].name,
+                   embedded_clock?34:30,40,cases[i].x,cases[i].y,embedded_clock?1:0);
+  for(unsigned a=0;a<sizeof aspects/sizeof *aspects;a++){
+   acnh_wide_set_aspect(aspects[a]);r[0]=rp;ui_pane(r,0);
+   float ex=fmaxf(1,aspects[a]/(16.f/9.f)),ey=fmaxf(1,(16.f/9.f)/aspects[a]);
+   r[0]=p;ui_pane(r,0);ui_pane(r,0);
+   assert(fabsf(ui_float(p,0x30)-cases[i].x-cases[i].dx*960*(ex-1))<.002f);
+   assert(fabsf(ui_float(p,0x34)-cases[i].y-cases[i].dy*540*(ey-1))<.002f);
+   assert(ui_float(p,0x48)==1&&ui_float(p,0x4c)==1);
+  }
+ }
+ memset(ui_records,0,sizeof ui_records);
+}
+
+static void screen_art_cases(uintptr_t base){
+ const struct {
+  const char *parent,*name;
+  float width,height,x,y;
+  unsigned origin;
+  int edge;
+ } examples[]={
+  {"N_InOut_00","P_Base_00",1920,1080,0,-540,8,0}, // DIY base
+  {"N_InOut_00","P_Tex_00",1920,1080,0,0,0,0},   // DIY texture
+  {NULL,"P_Tex_00",1920,1080,0,0,0,0},           // Miles quest texture
+  {"N_BgPattern_00","P_Pattern_00",1920,300,0,422,0,0},
+  {"N_InOut_00","P_Base_00",1920,1080,0,560,4,0}, // Miles result base
+  {"N_InOut_00","P_BG_00",1920,1080,0,0,0,0},   // My Designs edit background
+  {"N_InOut_00","P_Fade_00",1920,1080,0,0,0,0}, // black or white fade
+  {"N_Fade_00","P_Fade_00",1976,1114,0,0,0,0},  // Heart translucent fade
+  {"N_In_00","P_Back_00",2036,1182,6,-3,0,0},   // Dream
+  {"N_InOut_01","P_Base_00",2940,2272,-361,3,0,0}, // NookPhone wipe
+  {NULL,"P_Up_00",1920,342,0,540,4,1},          // Prologue outer edges
+  {NULL,"P_Down_00",1920,329,0,-540,8,-1}
+ };
+ const float aspects[]={2868.f/1320.f,4.f/3.f,16.f/9.f};
+ uint64_t root[40],group[40],pane[40],r[102]={0};
+ uintptr_t rp=(uintptr_t)root,gp=(uintptr_t)group,p=(uintptr_t)pane;
+ for(unsigned i=0;i<sizeof examples/sizeof *examples;i++){
+  memset(ui_records,0,sizeof ui_records);
+  screen_art_pane(root,base+0x474d1f8,0,"RootPane",1920,1080,0,0,0);
+  if(examples[i].parent)screen_art_pane(group,base+0x474d1f8,rp,examples[i].parent,30,40,0,0,0);
+  float w=examples[i].width,h=examples[i].height,y=examples[i].y;
+  screen_art_pane(pane,base+0x474d418,examples[i].parent?gp:rp,examples[i].name,
+                   w,h,examples[i].x,y,examples[i].origin);
+  *(uint8_t*)(p+0x59)=73;
+  for(unsigned a=0;a<sizeof aspects/sizeof *aspects;a++){
+   acnh_wide_set_aspect(aspects[a]);r[0]=rp;ui_pane(r,0);
+   float ex=fmaxf(1,aspects[a]/(16.f/9.f)),ey=fmaxf(1,(16.f/9.f)/aspects[a]);
+   float dh=examples[i].edge?540*(ey-1):h>=1080?h*(ey-1):0;
+   float origin=examples[i].origin==4?.5f:examples[i].origin==8?-.5f:0;
+   r[0]=p;ui_pane(r,0);ui_pane(r,0);
+   assert(fabsf(ui_float(p,0x50)-w*ex)<.002f&&fabsf(ui_float(p,0x54)-h-dh)<.002f);
+   assert(fabsf(ui_float(p,0x34)-y-dh*(origin+examples[i].edge*.5f))<.002f);
+   assert(ui_float(p,0x30)==examples[i].x&&ui_float(p,0x48)==1&&ui_float(p,0x4c)==1);
+   assert(*(uint8_t*)(p+0x59)==73);
+  }
+ }
+
+ // A transition can animate out of the supported axis-aligned pose after
+ // applying coverage. Rotation must restore the source geometry even if
+ // aspect changes before the animation ends.
+ memset(ui_records,0,sizeof ui_records);
+ screen_art_pane(root,base+0x474d1f8,0,"RootPane",1920,1080,0,0,0);
+ screen_art_pane(group,base+0x474d1f8,rp,"N_InOut_00",30,40,0,0,0);
+ screen_art_pane(pane,base+0x474d418,gp,"P_Base_00",1920,1080,0,-540,8);
+ acnh_wide_set_aspect(4.f/3.f);r[0]=rp;ui_pane(r,0);r[0]=p;ui_pane(r,0);
+ assert(ui_float(p,0x54)>1080&&ui_float(p,0x34)<-540);
+ fput((void*)(p+0x44),3.f);
+ acnh_wide_set_aspect(16.f/9.f);r[0]=rp;ui_pane(r,0);r[0]=p;ui_pane(r,0);ui_pane(r,0);
+ assert(ui_float(p,0x54)==1080&&ui_float(p,0x34)==-540&&ui_float(p,0x44)==3);
+ acnh_wide_set_aspect(4.f/3.f);r[0]=rp;ui_pane(r,0);r[0]=p;ui_pane(r,0);
+ assert(ui_float(p,0x54)==1080);
+ fput((void*)(p+0x44),0);ui_pane(r,0);assert(ui_float(p,0x54)>1080);
+
+ // WipeCircle's upper strip grows outside the aperture, including a zero
+ // height at the reference edge. A strip wholly inside does not grow.
+ memset(ui_records,0,sizeof ui_records);
+ screen_art_pane(root,base+0x474d1f8,0,"RootPane",1920,1080,0,0,0);
+ screen_art_pane(group,base+0x474d418,rp,"P_Circle_00",1080,1080,0,0,0);
+ screen_art_pane(pane,base+0x474d418,gp,"P_T_00",1980,0,0,0,0x48);
+ acnh_wide_set_aspect(4.f/3.f);r[0]=rp;ui_pane(r,0);r[0]=p;ui_pane(r,0);ui_pane(r,0);
+ assert(ui_float(p,0x34)==0&&fabsf(ui_float(p,0x54)-180)<.002f);
+ fput((void*)(gp+0x54),900);ui_pane(r,0);assert(ui_float(p,0x54)==0);
+ acnh_wide_set_aspect(16.f/9.f);r[0]=rp;ui_pane(r,0);r[0]=p;ui_pane(r,0);
+ assert(ui_float(p,0x50)==1980&&ui_float(p,0x54)==0);
+ memset(ui_records,0,sizeof ui_records);
+}
+
 int main(void){
  g_nmod=1;strcpy(g_mod[0].name,"main");strcpy(g_mod[0].build_id,"ff1d1c05670db6021c85b624a710b963");g_mod[0].base=(void*)0x100000000ull;
+ hud_asset_cases((uintptr_t)g_mod[0].base);
+ screen_art_cases((uintptr_t)g_mod[0].base);
  uint64_t obj[32]={0},r[102]={0},guest_frame[2]={0};r[99]=(uintptr_t)guest_frame;uintptr_t p=(uintptr_t)obj,base=(uintptr_t)g_mod[0].base;r[0]=p;guest_frame[1]=base+0x1000;obj[0]=base+0x4a65608;
  fput((void*)(p+0xa0),.384f);fput((void*)(p+0xb0),16.f/9.f);acnh_wide_set_aspect(2868.f/1320.f);perspective(r,0);
  assert(fabsf(fget((void*)(p+0xb0))-2868.f/1320.f)<1e-6f);assert(fget((void*)(p+0xa0))==.384f);
@@ -19,10 +139,18 @@ int main(void){
  double rect[4],native_aspect=2868./1320.;
  acnh_present_rect(2868,1320,1280,720,0,rect);
  double old_ratio=(rect[2]/native_aspect)/rect[3];assert(old_ratio<.83&&old_ratio>.80);
- acnh_wide_set_present_full(1);acnh_present_rect(2868,1320,1280,720,acnh_wide_present_full(),rect);
+ acnh_wide_set_present_mode(ACNH_PRESENT_FILL);acnh_present_rect(2868,1320,1280,720,acnh_wide_present_mode(),rect);
  assert(rect[0]==0&&rect[1]==0&&rect[2]==2868&&rect[3]==1320);
  assert(fabs((rect[2]/native_aspect)/rect[3]-1)<1e-6);
- acnh_wide_set_present_full(0);acnh_present_rect(2868,1320,1280,720,acnh_wide_present_full(),rect);assert(rect[0]>0);
+ acnh_wide_set_present_mode(ACNH_PRESENT_FIT);acnh_present_rect(2868,1320,1280,720,acnh_wide_present_mode(),rect);assert(rect[0]>0);
+ // Keep every original pixel at its intended ratio in an iPad window that
+ // is nearly, but not quite, 16:9. Legacy presentation still snaps to fill.
+ acnh_present_rect(1600,906,1280,720,ACNH_PRESENT_FIT,rect);
+ assert(rect[1]==0&&rect[3]==906);
+ acnh_wide_set_present_mode(ACNH_PRESENT_STRICT_FIT);
+ acnh_present_rect(1600,906,1280,720,acnh_wide_present_mode(),rect);
+ assert(rect[0]==0&&rect[1]==3&&rect[2]==1600&&rect[3]==900);
+ acnh_wide_set_present_mode(ACNH_PRESENT_FIT);
 
  acnh_wide_set_aspect(2868.f/1320.f);float uk=wanted()/(16.f/9.f);
  uint64_t rootObj[40]={0},bgObj[40]={0},groupObj[40]={0};uintptr_t up=(uintptr_t)rootObj,bp=(uintptr_t)bgObj,gp=(uintptr_t)groupObj;

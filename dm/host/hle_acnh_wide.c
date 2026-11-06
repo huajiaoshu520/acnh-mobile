@@ -6,9 +6,9 @@
 #include <math.h>
 
 static _Atomic uint32_t wide_bits = 0x3fe38e39;
-static _Atomic int wide_present_full;
-void acnh_wide_set_present_full(int on){atomic_store_explicit(&wide_present_full,!!on,memory_order_relaxed);}
-int acnh_wide_present_full(void){return atomic_load_explicit(&wide_present_full,memory_order_relaxed);}
+static _Atomic int wide_present_mode;
+void acnh_wide_set_present_mode(int mode){atomic_store_explicit(&wide_present_mode,mode,memory_order_relaxed);}
+int acnh_wide_present_mode(void){return atomic_load_explicit(&wide_present_mode,memory_order_relaxed);}
 static float fget(const void *p) { float f; memcpy(&f,p,4); return f; }
 static void fput(void *p,float f) { memcpy(p,&f,4); }
 void acnh_wide_set_aspect(float a) {

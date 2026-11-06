@@ -29,10 +29,13 @@ static BOOL tabletop(UIView *view,CGRect *upper,CGRect *lower) {
  return NO;
 }
 BOOL acnh_tabletop_active(UIView *view) { CGRect top,bottom;return tabletop(view,&top,&bottom); }
-// Portrait companion uses the safe visible display, including a folded outer screen.
 BOOL acnh_portrait_companion_active(UIView *view) {
- CGRect b=UIEdgeInsetsInsetRect(view.bounds,view.safeAreaInsets);
- return acnh_allows_companion(view) && b.size.height>b.size.width && b.size.width>0;
+ // Lay out the canvas in the root view's coordinates. A host window can
+ // report a different orientation, and hinge capability alone is not a division.
+ return acnh_allows_companion(view)&&acnh_split_portrait_bounds(view.bounds);
+}
+BOOL acnh_split_portrait_companion_active(UIView *view) {
+ return acnh_portrait_companion_active(view)&&!acnh_tabletop_active(view);
 }
 BOOL acnh_companion_controls_active(UIView *view) {
  UIViewController *controller=view.window.rootViewController;
@@ -42,41 +45,49 @@ BOOL acnh_companion_controls_active(UIView *view) {
 CGRect acnh_companion_frame(UIView *view) {
  if(!acnh_portrait_companion_active(view))return CGRectZero;
  CGRect top,bottom;if(tabletop(view,&top,&bottom))return bottom;
- CGRect b=UIEdgeInsetsInsetRect(view.bounds,view.safeAreaInsets);
- CGFloat height=b.size.width*9./16.;
- return CGRectMake(b.origin.x,b.origin.y+height,b.size.width,MAX(0,b.size.height-height));
+ return acnh_split_portrait_region(view.bounds,acnh_view_display_scale(view),1);
 }
 int acnh_display_mode(void) { return acnh_display_mode_value(getenv("ACNH_DISPLAY_MODE")); }
+static int split_portrait_display_mode=-1;
+int acnh_display_mode_for_view(UIView *view) {
+ int launch=acnh_display_mode();
+ return acnh_split_portrait_companion_active(view)?
+     acnh_split_portrait_mode(launch,split_portrait_display_mode):launch;
+}
+void acnh_set_split_portrait_display_mode(int mode) {
+ if(mode==ACNH_DISPLAY_AUTO||mode==ACNH_DISPLAY_ORIGINAL)split_portrait_display_mode=mode;
+}
+
 CGRect acnh_game_viewport(UIView *view) {
  CGRect top,bottom;
  if(tabletop(view,&top,&bottom))return top;
- if(acnh_portrait_companion_active(view)) {
-  CGRect b=UIEdgeInsetsInsetRect(view.bounds,view.safeAreaInsets);
-  b.size.height=b.size.width*9./16.;return b;
- }
+ if(acnh_portrait_companion_active(view))return acnh_split_portrait_region(view.bounds,acnh_view_display_scale(view),0);
  // Hinge capability alone does not mean this scene is split. Landscape
  // uses the full canvas; actual portrait/tabletop layouts returned above.
  return view.bounds;
 }
 BOOL acnh_expanded_view_active(UIView *view) {
- if(acnh_portrait_companion_active(view)||acnh_tabletop_active(view))return NO;
+ if(acnh_tabletop_active(view))return NO;
  CGRect b=acnh_game_viewport(view);
+ int mode=acnh_display_mode_for_view(view);
+ if(acnh_portrait_companion_active(view))return acnh_split_portrait_expand(mode,b.size);
  UIUserInterfaceIdiom idiom=UIDevice.currentDevice.userInterfaceIdiom;
  return acnh_expanded_view_eligible(idiom==UIUserInterfaceIdiomPhone?1:idiom==UIUserInterfaceIdiomPad?2:0,
-     0,acnh_display_mode(),b.size.width,b.size.height);
+     0,mode,b.size.width,b.size.height);
 }
 
 CGRect acnh_game_frame(UIView *view) {
- if(acnh_portrait_companion_active(view))return acnh_fit_game(acnh_game_viewport(view));
  if(acnh_expanded_view_active(view))return acnh_game_viewport(view);
+ if(acnh_portrait_companion_active(view))return acnh_fit_game(acnh_game_viewport(view));
  return acnh_display_frame(acnh_game_viewport(view),acnh_display_mode());
 }
 CGRect acnh_pad_frame(UIView *view) {
  acnh_pad_use_geometry(view);
- if(acnh_portrait_companion_active(view)){
-  CGRect lower=acnh_companion_frame(view);lower.size.height-=dm_companion_footer_height(lower.size);return lower;
- }
  CGRect top,bottom;
+ if(acnh_portrait_companion_active(view)){
+  CGRect safe=UIEdgeInsetsInsetRect(view.bounds,view.safeAreaInsets);
+  return dm_companion_controls_frame(acnh_companion_frame(view),safe);
+ }
  if(tabletop(view,&top,&bottom))return bottom;
  // Landscape controls use the entire display, independently of the game
  // aspect ratio. Portrait and tabletop retain their lower-screen canvas.

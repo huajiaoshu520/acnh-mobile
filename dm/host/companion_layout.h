@@ -7,6 +7,11 @@ static inline CGFloat dm_companion_footer_height(CGSize size) {
     if(!isfinite(size.width)||!isfinite(size.height)||size.width<=0||size.height<=0)return 0;
     return fmin(size.height*0.2,fmax(56,fmin(88,size.width*0.09)));
 }
+static inline CGRect dm_companion_controls_frame(CGRect panel,CGRect safe) {
+    panel.size.height-=dm_companion_footer_height(panel.size);
+    CGRect body=CGRectIntersection(panel,safe);
+    return CGRectIsEmpty(body)?CGRectZero:body;
+}
 static inline dm_companion_layout dm_companion_screen_layout(CGRect safe, int portrait, int touch) {
     dm_companion_layout r={0};
     if(!isfinite(safe.size.width) || !isfinite(safe.size.height) || safe.size.width<=0 || safe.size.height<=0)return r;

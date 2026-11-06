@@ -28,6 +28,22 @@ int main(void){@autoreleasepool{
    assert(CGRectContainsRect(lower,CGRectMake(q.x-60,q.y-60,120,120)));
   }
  }
+ // Portrait editing stores the visible destination. An old extreme offset
+ // and a subsequent resize can clamp it, but the next inward drag still moves.
+ CGRect lower=CGRectMake(0,0,834,529.94);
+ CGFloat margin=100;
+ CGPoint old=pad_point(@{@"stick":@{@"dx":@1,@"dy":@(-1)}},@"stick",original,lower,lower,margin);
+ assert(old.x==CGRectGetMaxX(lower)-102 && old.y==102);
+ CGPoint wanted=pad_clamp_center(CGPointMake(old.x-8,old.y+6),lower,margin);
+ NSDictionary *moved=@{@"stick":@{@"dx":@1,@"dy":@(-1),@"x":@(wanted.x/lower.size.width),@"y":@(wanted.y/lower.size.height)}};
+ CGPoint restored=pad_point(moved,@"stick",original,lower,lower,margin);
+ assert(hypot(restored.x-wanted.x,restored.y-wanted.y)<.001);
+ assert(CGRectContainsRect(lower,CGRectMake(restored.x-margin,restored.y-margin,2*margin,2*margin)));
+ for(int edge=0;edge<=1;edge++){
+  CGPoint p=pad_point(@{@"stick":@{@"x":@(edge),@"y":@(edge)}},@"stick",original,lower,lower,margin);
+  assert(CGRectContainsRect(lower,CGRectMake(p.x-margin,p.y-margin,2*margin,2*margin)));
+ }
+ assert(CGPointEqualToPoint(pad_clamp_center(CGPointZero,CGRectMake(0,0,30,20),100),CGPointMake(15,10)));
  [defaults removePersistentDomainForName:suite];
  puts("layout: exact defaults/reset, normalized movement, independent controls, scale bounds, malformed values and persistence passed");
 }}
