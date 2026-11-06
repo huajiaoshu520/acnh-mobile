@@ -1,5 +1,5 @@
 #include "acnh_present_math.h"
-extern int acnh_wide_present_full(void);
+extern int acnh_wide_present_mode(void);
 // Metal execution layer of the NVN null device, see nvn_mtl.h.
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
@@ -11510,7 +11510,7 @@ static id<MTLTexture> present_raw_src(id<MTLTexture> src) {
 // differs from the game's, e.g. iPhone about 19.5:9 against the game's 16:9); when the ratios differ by under 1 % (the remainder from a game width that is a multiple of 8 in the
 // full-screen setup, e.g. 1952x900 against 2868x1320 differs by 0.17 %) the whole canvas, leaving no border of a few pixels
 static MTLViewport present_viewport(double cw, double ch, double dw, double dh) {
-    double rect[4];acnh_present_rect(dw,dh,cw,ch,acnh_wide_present_full(),rect);
+    double rect[4];acnh_present_rect(dw,dh,cw,ch,acnh_wide_present_mode(),rect);
     MTLViewport vp={rect[0],rect[1],rect[2],rect[3],0,1};
     return vp;
 }
@@ -11635,8 +11635,9 @@ static int acnh_minimap_encode(id<MTL4CommandBuffer> cb, id<MTLTexture> src, id<
     }
     present_pipeline(dst.pixelFormat);
     double dw=dst.width,dh=dst.height,rect[4];
-    int expand=!minimap&&acnh_wide_present_full();
-    acnh_present_rect(dw,dh,cw,ch,expand,rect);
+    int mode=minimap?ACNH_PRESENT_FIT:acnh_wide_present_mode();
+    int expand=mode==ACNH_PRESENT_FILL;
+    acnh_present_rect(dw,dh,cw,ch,mode,rect);
     MTLViewport vp={rect[0],rect[1],rect[2],rect[3],0,1};
     static double previous[2][7];
     double sample[7]={dw,dh,rect[0],rect[1],rect[2],rect[3],expand};

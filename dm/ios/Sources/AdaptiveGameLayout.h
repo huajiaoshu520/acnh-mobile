@@ -6,6 +6,8 @@ void acnh_observe_display(UIView *view);
 BOOL acnh_has_hinge(UIView *view);
 BOOL acnh_allows_companion(UIView *view);
 int acnh_display_mode(void);
+int acnh_display_mode_for_view(UIView *view);
+void acnh_set_split_portrait_display_mode(int mode);
 BOOL acnh_expanded_view_active(UIView *view);
 CGRect acnh_game_viewport(UIView *view);
 CGRect acnh_game_frame(UIView *view);
@@ -15,6 +17,7 @@ CGPoint acnh_control_point(UIView *view,CGPoint point,CGFloat radius);
 CGFloat acnh_view_display_scale(UIView *view);
 
 BOOL acnh_portrait_companion_active(UIView *view);
+BOOL acnh_split_portrait_companion_active(UIView *view);
 CGRect acnh_companion_frame(UIView *view);
 
 BOOL acnh_companion_controls_active(UIView *view);

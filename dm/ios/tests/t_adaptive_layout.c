@@ -1,4 +1,5 @@
 #include "../Sources/AdaptiveLayoutMath.h"
+#include "../../host/companion_layout.h"
 #include <assert.h>
 #include <stdio.h>
 static void fit(CGRect bounds){
@@ -36,5 +37,50 @@ int main(void){
  assert(!acnh_tabletop_regions(s,NULL,0,&u,&l));
  d=CGRectMake(0,40,942,30);assert(!acnh_tabletop_regions(s,&d,1,&u,&l));
  d=CGRectMake(0,640,942,0);assert(acnh_tabletop_regions(s,&d,1,&u,&l));
- puts("adaptive layout: 652 fit cases, legacy/inset positions and reserved-region checks passed");
+ CGRect tablets[]={CGRectMake(0,0,768,1024),CGRectMake(0,0,834,1194),
+                   CGRectMake(12,20,1024,1367),CGRectMake(0,0,832,936.5)};
+ for(unsigned i=0;i<sizeof tablets/sizeof *tablets;i++){
+  CGRect canvas=tablets[i],safe=CGRectInset(canvas,0,24);
+  assert(acnh_split_portrait_bounds(canvas));
+  u=acnh_split_portrait_region(canvas,2,0);
+  l=acnh_split_portrait_region(canvas,2,1);
+  assert(fabs(u.size.height-l.size.height)<=0.5&&u.size.width==l.size.width);
+  assert(u.size.height*2==round(u.size.height*2));
+  assert(CGRectGetMaxY(u)==CGRectGetMinY(l)&&CGRectEqualToRect(CGRectUnion(u,l),canvas));
+  assert(acnh_split_portrait_expand(ACNH_DISPLAY_AUTO,u.size));
+  assert(!acnh_split_portrait_expand(ACNH_DISPLAY_ORIGINAL,u.size));
+  CGRect original=acnh_display_frame(u,ACNH_DISPLAY_ORIGINAL);
+  assert(CGRectContainsRect(u,original));
+  assert(fabs(original.size.width/original.size.height-16./9.)<1e-10);
+  assert(original.size.width==u.size.width&&original.size.height<u.size.height);
+  CGRect controls=dm_companion_controls_frame(l,safe);
+  assert(CGRectGetMinY(controls)==CGRectGetMinY(l));
+  assert(CGRectContainsRect(safe,controls));
+  assert(CGRectGetMaxY(controls)<=CGRectGetMaxY(l)-dm_companion_footer_height(l.size));
+ }
+ // IMG_0497: a 1668x2420 canvas at 2x with top and bottom safe areas.
+ // The old upper region ended at pixel 970. Both picture modes now use 1210.
+ CGRect capture=CGRectMake(0,0,834,1210),captureSafe=CGRectMake(0,16,834,1169);
+ u=acnh_split_portrait_region(capture,2,0);
+ l=acnh_split_portrait_region(capture,2,1);
+ assert(CGRectGetMaxY(u)*2==1210&&CGRectGetMinY(l)*2==1210);
+ assert(CGRectEqualToRect(CGRectUnion(u,l),capture));
+ CGRect captureControls=dm_companion_controls_frame(l,captureSafe);
+ assert(CGRectGetMinY(captureControls)*2==1210);
+ assert(fabs(CGRectGetMaxY(captureControls)-1134.94)<0.001);
+ assert(CGRectEqualToRect(dm_companion_controls_frame(l,CGRectMake(28,621,778,470)),CGRectMake(28,621,778,470)));
+ assert(CGRectIsEmpty(dm_companion_controls_frame(l,CGRectMake(0,0,834,550))));
+ assert(acnh_split_portrait_expand(ACNH_DISPLAY_AUTO,u.size));
+ assert(!acnh_split_portrait_expand(ACNH_DISPLAY_ORIGINAL,u.size));
+ assert(acnh_fit_game(u).size.height==captureSafe.size.width*9./16.);
+ assert(!acnh_split_portrait_bounds(CGRectMake(0,0,1024,768)));
+ assert(!acnh_split_portrait_expand(ACNH_DISPLAY_AUTO,CGSizeMake(300,400)));
+ assert(acnh_split_portrait_expand(ACNH_DISPLAY_AUTO,CGSizeMake(832,468)));
+ assert(acnh_split_portrait_mode(ACNH_DISPLAY_AUTO,-1)==ACNH_DISPLAY_AUTO);
+ assert(acnh_split_portrait_mode(ACNH_DISPLAY_ORIGINAL,-1)==ACNH_DISPLAY_ORIGINAL);
+ assert(acnh_split_portrait_mode(ACNH_DISPLAY_STRETCH,-1)==ACNH_DISPLAY_ORIGINAL);
+ assert(acnh_split_portrait_mode(ACNH_DISPLAY_CROP,-1)==ACNH_DISPLAY_ORIGINAL);
+ assert(acnh_split_portrait_mode(ACNH_DISPLAY_ORIGINAL,ACNH_DISPLAY_AUTO)==ACNH_DISPLAY_AUTO);
+ assert(acnh_split_portrait_mode(ACNH_DISPLAY_AUTO,ACNH_DISPLAY_ORIGINAL)==ACNH_DISPLAY_ORIGINAL);
+ puts("adaptive layout: 652 fit cases, iPad pixel-aligned split and picture choices, lower control body and reserved-region checks passed");
 }

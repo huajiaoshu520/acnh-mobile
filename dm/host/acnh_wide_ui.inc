@@ -48,6 +48,88 @@ static int ui_path(uintptr_t p,const char *path){
  }
  return 0;
 }
+
+// The background and transition roles below come from the 3.0.3 layouts.
+// Extend their geometry before Pane::Calculate so draw variants receive
+// the same coverage. Keep the per-frame pose, colour, opacity and children.
+static int ui_screen_art(uintptr_t p,const char *name,float width,float height){
+ if(width==1920.f&&height==1080.f){
+  if(!strcmp(name,"P_Tex_00"))
+   return ui_path(p,"RootPane/P_Tex_00")||ui_path(p,"RootPane/N_InOut_00/P_Tex_00");
+  if(!strcmp(name,"P_Base_00"))return ui_path(p,"RootPane/N_InOut_00/P_Base_00");
+  if(!strcmp(name,"P_BG_00"))return ui_path(p,"RootPane/N_InOut_00/P_BG_00");
+  if(!strcmp(name,"P_Fade_00"))return ui_path(p,"RootPane/N_InOut_00/P_Fade_00");
+  if(!strcmp(name,"P_Bg_00"))return ui_path(p,"RootPane/N_InOut_00/P_Bg_00");
+ }
+ if(width==1976.f&&height==1114.f&&!strcmp(name,"P_Fade_00"))
+  return ui_path(p,"RootPane/N_Fade_00/P_Fade_00");
+ if(width==2036.f&&height==1182.f){
+  if(!strcmp(name,"P_Back_00"))return ui_path(p,"RootPane/N_In_00/P_Back_00");
+  if(!strcmp(name,"P_Back_01"))return ui_path(p,"RootPane/N_In_00/P_Back_01");
+ }
+ if(width==2940.f&&height==2272.f&&!strcmp(name,"P_Base_00"))
+  return ui_path(p,"RootPane/N_InOut_00/P_Base_00")||ui_path(p,"RootPane/N_InOut_01/P_Base_00");
+ if(width==1920.f&&height==300.f&&
+    (!strcmp(name,"P_Pattern_00")||!strcmp(name,"P_Pattern_01")||
+     !strcmp(name,"P_Pattern_02")||!strcmp(name,"P_PatternEvent_00"))){
+  uintptr_t parent=*(uintptr_t*)(p+0x18);
+  return ui_path(parent,"RootPane/N_BgPattern_00");
+ }
+ return 0;
+}
+
+static void ui_extend_screen_art(uintptr_t p,acnh_ui_record *art,
+                                float width,float height,float tx,float ty,
+                                float target_width,float target_height,int outer_y){
+ float sx=ui_float(p,0x48),sy=ui_float(p,0x4c);
+ // Positions are measured from the pane origin. Add half the extra size
+ // at an edge origin to keep the centre on its authored animation path.
+ unsigned origin=*(uint8_t*)(p+0x5b)&15;
+ static const float pivot[]={0.f,-.5f,.5f};
+ int axis_aligned=isfinite(sx)&&isfinite(sy)&&isfinite(tx)&&isfinite(ty)&&
+  ui_float(p,0x3c)==0.f&&ui_float(p,0x40)==0.f&&ui_float(p,0x44)==0.f&&
+  (origin&3)<=2&&(origin>>2)<=2&&(!outer_y||origin==(outer_y>0?4u:8u));
+ art->width=width;art->height=height;art->tx=tx;art->ty=ty;
+ // A previously covered pane can animate out of the accepted pose.
+ // Restore the authored geometry for that frame and apply coverage again
+ // when it returns to an axis-aligned pose.
+ art->last_width=width;art->last_height=height;art->last_tx=tx;art->last_ty=ty;
+ if(axis_aligned){
+  art->last_width=target_width;art->last_height=target_height;
+  art->last_tx+=(target_width-width)*sx*pivot[origin&3];
+  art->last_ty+=(target_height-height)*sy*(outer_y*.5f-pivot[origin>>2]);
+ }
+ ui_write(p,0x50,art->last_width);ui_write(p,0x54,art->last_height);
+ if(isfinite(art->last_tx))ui_write(p,0x30,art->last_tx);
+ if(isfinite(art->last_ty))ui_write(p,0x34,art->last_ty);
+ art->valid=1;
+}
+
+// Work in authored root units. Global matrices can still be from the last
+// frame and do not expose the current animated aperture anchor.
+static float ui_circle_outer_extension(uintptr_t pane,uintptr_t top,float height,
+                                       float reference_height,float extra,int direction){
+ static const float anchor[]={0.f,.5f,-.5f};
+ float y=direction*height,scale=1.f;
+ uintptr_t node=pane;
+ for(unsigned depth=0;node!=top&&depth<32;depth++){
+  uintptr_t parent=*(uintptr_t*)(node+0x18);
+  if(!parent||ui_float(node,0x3c)!=0.f||ui_float(node,0x40)!=0.f||
+     ui_float(node,0x44)!=0.f)return 0.f;
+  unsigned reference=(*(uint8_t*)(node+0x5b)>>6)&3;
+  unsigned origin=(*(uint8_t*)(parent+0x5b)>>2)&3;
+  float sy=ui_float(node,0x4c);
+  if(reference>2||origin>2||!isfinite(sy)||sy<=0.f)return 0.f;
+  float parent_height=parent==top?reference_height:ui_float(parent,0x54);
+  y=y*sy+ui_float(node,0x34)+(anchor[reference]-anchor[origin])*parent_height;
+  scale*=sy;
+  node=parent;
+ }
+ if(node!=top||!isfinite(y)||!isfinite(scale)||scale<=1e-5f||
+    direction*y<reference_height*.5f-1.f)return 0.f;
+ return extra/scale;
+}
+
 static void ui_pane(uint64_t *r,int param) {
  (void)param;static uintptr_t base; if(!base)base=main_base();uintptr_t p=r[0];if(!base||!p)return;
  // Observe the authored title prompt before any aspect adaptation. In the
@@ -159,7 +241,9 @@ static void ui_pane(uint64_t *r,int param) {
 
   if(!strcmp(pane_name,"N_InSaveDataSetting_00")&&hw==30&&hh==30&&
      !strcmp(pn,"N_InOut_00")){ax=-1;ay=-1;}
-  if(!strcmp(pane_name,"N_Pos_00")&&!strcmp(pn,"L_Clock_00")){ax=-1;ay=-1;}
+  if(!strcmp(pane_name,"N_Pos_00")&&
+     (!strcmp(pn,"L_Clock_00")||
+      (hw==34.f&&hh==40.f&&ui_path(parent,"L_Clock_00/RootPane")))){ax=-1;ay=-1;}
   if((!strcmp(pane_name,"N_Pos_00")&&hw==30&&hh==40)||
      (!strcmp(pane_name,"P_Base_00")&&hw==412&&hh==70)){
    if(hx>850&&hy>850&&!strcmp(pn,"N_InOut_00")){ax=1;ay=1;}
@@ -410,6 +494,28 @@ static void ui_pane(uint64_t *r,int param) {
   if(capture_picture){pthread_mutex_unlock(&ui_mutex);return;}
   float w=ui_float(p,0x50),h=ui_float(p,0x54),H=root->height;
   const char *name=pane_name;
+  // Full-size DIY/Miles/design backgrounds and exact authored fades.
+  // The top/bottom-origin DIY and Miles bases need origin compensation
+  // when the iPad exposes extra height; scale alone exposes one edge.
+  acnh_ui_record *art=ui_record(p,0);
+  float art_width=art&&art->valid&&w==art->last_width?art->width:w;
+  float art_height=art&&art->valid&&h==art->last_height?art->height:h;
+  unsigned base_position=*(uint8_t*)(p+0x5b)&15;
+  int prologue_edge=0;
+  if(parent==top&&art_width==1920.f){
+   if(art_height==342.f&&!strcmp(name,"P_Up_00"))prologue_edge=1;
+   if(art_height==329.f&&!strcmp(name,"P_Down_00"))prologue_edge=-1;
+  }
+  if(root->width==1920.f&&H==1080.f&&
+     (prologue_edge||ui_screen_art(p,name,art_width,art_height))){
+   if(!art)art=ui_record(p,fabsf(k-1.f)>.001f);
+   float target_height=art_height;
+   if(prologue_edge)target_height+=H*.5f*(ey-1.f);
+   else if(art_height>=H)target_height*=ey;
+   if(art)ui_extend_screen_art(p,art,art_width,art_height,hx,hy,
+                               art_width*ex,target_height,prologue_edge);
+   pthread_mutex_unlock(&ui_mutex);return;
+  }
   // The completed-home reveal shrinks the round aperture's dimensions.
   // In a wider viewport an unchanged aperture meets the new corners sooner.
   // Adapt only this mask (not its sibling logo/title), preserving keyframe
@@ -448,7 +554,8 @@ static void ui_pane(uint64_t *r,int param) {
    pthread_mutex_unlock(&ui_mutex);return;
   }
   unsigned origin=(*(uint8_t*)(p+0x5b))&3;
-  int side=(!strncmp(name,"P_L_",4)&&origin==2)||(!strncmp(name,"P_R_",4)&&origin==1);
+  int side=((!strncmp(name,"P_L_",4)||!strcmp(name,"P_LNormal_00"))&&origin==2)||
+           ((!strncmp(name,"P_R_",4)||!strcmp(name,"P_RNormal_00"))&&origin==1);
   if(side&&(!strncmp((const char*)(parent+0xb0),"P_Circle_",9)||
            !strcmp((const char*)(parent+0xb0),"P_SirclePattern_00"))&&isfinite(w)&&isfinite(h)&&w>=0&&h>0){
    acnh_ui_record *c=ui_record(p,fabsf(k-1.f)>.001f);
@@ -468,13 +575,19 @@ static void ui_pane(uint64_t *r,int param) {
    !strcmp((char*)(parent+0xb0),"P_SirclePattern_00");
   acnh_ui_record *fill=ui_record(p,0);
   float fill_width=fill&&fill->valid&&w==fill->last_width?fill->width:w;
-  if(circle_parent&&(!strncmp(name,"P_B_",4)||!strncmp(name,"P_T_",4))&&
-     fabsf(fill_width-1980.f)<.01f&&h>=0){
+  float fill_height=fill&&fill->valid&&h==fill->last_height?fill->height:h;
+  int upper=!strncmp(name,"P_T_",4)||!strcmp(name,"P_TNormal_00");
+  int lower=!strncmp(name,"P_B_",4)||!strcmp(name,"P_BNormal_00");
+  if(circle_parent&&(upper||lower)&&fabsf(fill_width-1980.f)<.01f&&fill_height>=0){
    float ps=1.f,rs=ui_parent_ratio(parent,top,0x48);
    acnh_ui_record *c=fill?fill:ui_record(p,fabsf(k-1.f)>.001f);
    if(c&&isfinite(ps)&&isfinite(rs)&&fabsf(ps)>1e-5f&&fabsf(rs)>1e-5f){
     c->width=fill_width;c->last_width=fill_width+root->width*(ex-1.f)*fabsf(rs/ps);
-    ui_write(p,0x50,c->last_width);c->valid=1;
+    c->height=fill_height;c->last_height=fill_height;
+    if(ey>1.f&&(base_position&12)==(upper?8u:4u)){
+     c->last_height+=ui_circle_outer_extension(p,top,fill_height,H,H*.5f*(ey-1.f),upper?1:-1);
+    }
+    ui_write(p,0x50,c->last_width);ui_write(p,0x54,c->last_height);c->valid=1;
    }
    pthread_mutex_unlock(&ui_mutex);return;
   }

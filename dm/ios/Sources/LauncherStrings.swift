@@ -30,7 +30,7 @@ enum LauncherText {
     static func note(env: String, fallback: String, language: String = Locale.preferredLanguages.first ?? "en") -> String {
         if language.lowercased().hasPrefix("ja"), !fallback.isEmpty {
             let japanese = ["DM_PRESENT_UPSCALE": "GPU処理時間と発熱が増える場合があります。",
-                "ACNH_DISPLAY_MODE": "自動は対応する横長のiPhoneで比率を保って視野を拡張し、iPadでは既存の配置を維持します。オリジナルは16:9を維持します。引き伸ばしは画面全体に拡大し、トリミングは比率を保って端を切り取ります。",
+                "ACNH_DISPLAY_MODE": "自動は対応するiPhoneとiPadで比率を保って視野を拡張します。iPadを縦向きにすると、上下に画面を等分します。オリジナルは16:9の画面全体を表示します。単画面では引き伸ばしで画面を埋め、トリミングで端を切り取ります。",
                 "DM_FPS_HOLD": "公式のフレーム制御を使う場合、遅れたフレームの表示を延長します。",
                 "DM_PSO_MTL4": "パイプラインアーカイブを保持するため、メモリ使用量が増えます。",
                 "DM_PSO_PREBUILD": "初回起動時に数分かかる場合があります。次回以降は再利用します。",
@@ -46,7 +46,7 @@ enum LauncherText {
             return japanese[env] ?? fallback
         }
         let notes = ["DM_PRESENT_UPSCALE": "可能增加 GPU 耗时和发热。",
-            "ACNH_DISPLAY_MODE": "自适应在宽屏 iPhone 扩展视野并保持比例，iPad 沿用原布局。原版保持16:9；拉伸填满屏幕，裁剪保持比例并隐藏边缘。",
+            "ACNH_DISPLAY_MODE": "自适应在支持的 iPhone 和 iPad 上等比例扩展视野。iPad 竖屏上下各半，原版保留完整的 16:9 画面。单屏时，拉伸填满屏幕，裁剪等比例隐藏边缘。",
             "DM_FPS_HOLD": "使用官方帧率步进时，延迟帧可保持更久。",
             "DM_PSO_MTL4": "保留管线归档，会增加内存占用。",
             "DM_PSO_PREBUILD": "首次启动可能需要等待几分钟，完成后后续启动复用。",

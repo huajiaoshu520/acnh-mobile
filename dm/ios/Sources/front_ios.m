@@ -1,5 +1,6 @@
 extern void acnh_wide_set_aspect(float aspect);
-extern void acnh_wide_set_present_full(int on);
+extern void acnh_wide_set_present_mode(int mode);
+#include "../../gfx/nvn/acnh_present_math.h"
 // iOS front end: a clipped Metal picture with selectable fit/stretch/crop, plus the existing independent virtual gamepad layer.
 // The host runs on the big-stack thread started by main.m; front_run runs the guest directly on the calling thread.
 #import <UIKit/UIKit.h>
@@ -41,6 +42,7 @@ static UILabel *front_ios_fps_label(void);
 @interface DmGameView : UIView
 @property(nonatomic) BOOL separateTouch;
 @property(nonatomic) BOOL stretchPicture;
+@property(nonatomic) CGRect screenTouchRect; // empty uses the entire Metal view
 - (void)resetScreenTouches;
 @end
 @implementation DmGameView { NSMapTable<UITouch *,NSNumber *> *_screenFingers; }
@@ -56,20 +58,27 @@ static UILabel *front_ios_fps_label(void);
     return self;
 }
 - (void)resetScreenTouches { [_screenFingers removeAllObjects];dm_touch_set(NULL,0); }
+- (CGRect)activeTouchRect { return CGRectIsEmpty(self.screenTouchRect)?self.bounds:self.screenTouchRect; }
 - (void)publishScreenTouches {
  if(!self.separateTouch)return;
+ CGRect image=[self activeTouchRect];
+ if(CGRectIsEmpty(image))return;
  dm_touch points[16];int n=0;
  for(UITouch *t in _screenFingers){
   CGPoint p=[t locationInView:self];
-  if(self.bounds.size.width<=0||self.bounds.size.height<=0)continue;
   points[n++]=(dm_touch){.id=[_screenFingers objectForKey:t].unsignedIntValue,
-   .x=(float)fmin(fmax(p.x/self.bounds.size.width,0),.999),.y=(float)fmin(fmax(p.y/self.bounds.size.height,0),.999)};
+   .x=(float)fmin(fmax((p.x-image.origin.x)/image.size.width,0),.999),
+   .y=(float)fmin(fmax((p.y-image.origin.y)/image.size.height,0),.999)};
  }
  dm_touch_set(points,n);
 }
 - (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
  (void)event;if(!self.separateTouch)return;
- for(UITouch *t in touches){BOOL used[16]={0};for(NSNumber *slot in _screenFingers.objectEnumerator)used[slot.intValue]=YES;
+ CGRect image=[self activeTouchRect];
+ for(UITouch *t in touches){
+  CGPoint normalized;
+  if(!acnh_game_touch([t locationInView:self],image,&normalized))continue;
+  BOOL used[16]={0};for(NSNumber *slot in _screenFingers.objectEnumerator)used[slot.intValue]=YES;
   for(int i=0;i<16;i++)if(!used[i]){[_screenFingers setObject:@(i) forKey:t];break;}}
  [self publishScreenTouches];
 }
@@ -107,6 +116,8 @@ static BOOL tv_active(void);
 @property (nonatomic, strong) UIView *pad;
 @property (nonatomic, strong) DmGameView *miniMap;
 @property (nonatomic, strong) UIViewController *companion;
+@property (nonatomic, strong) UIButton *portraitFramingButton;
+@property (nonatomic) int portraitFramingMenuMode;
 @property (nonatomic, strong) UILabel *fps;
 @property (nonatomic,strong) UILabel *loadLabel;
 @property (nonatomic) BOOL preparing;
@@ -172,17 +183,70 @@ static void launcher_done(void) { [g_root startGame]; }
     self.fps = front_ios_fps_label();   // above the pad, which hides while a controller is connected
     if (self.fps) [self.view addSubview:self.fps];
 }
+static BOOL portrait_framing_locked(void) {
+    const char *keys[]={getenv("DM_ENV_FILE_KEYS"),getenv("DM_ENV_LAUNCH_KEYS")};
+    for(unsigned i=0;i<sizeof keys/sizeof keys[0];i++){
+        if(keys[i]&&[[@(keys[i]) componentsSeparatedByString:@" "] containsObject:@"ACNH_DISPLAY_MODE"])return YES;
+    }
+    return NO;
+}
+- (void)updatePortraitFramingMenu:(int)mode {
+    NSString *title=NSLocalizedStringFromTable(@"Game image",@"Companion",nil);
+    __weak DmRootVC *weakSelf=self;
+    NSArray *labels=@[NSLocalizedStringFromTable(@"Expand game view",@"Companion",nil),
+                      NSLocalizedStringFromTable(@"Fit entire image",@"Companion",nil)];
+    NSMutableArray<UIAction *> *choices=[NSMutableArray arrayWithCapacity:2];
+    int modes[]={ACNH_DISPLAY_AUTO,ACNH_DISPLAY_ORIGINAL};
+    for(unsigned i=0;i<sizeof modes/sizeof modes[0];i++){
+        int choice=modes[i];
+        UIAction *action=[UIAction actionWithTitle:labels[i] image:nil identifier:nil handler:^(UIAction *sender){
+            (void)sender;
+            DmRootVC *root=weakSelf;
+            if(!root||!acnh_split_portrait_companion_active(root.view))return;
+            acnh_set_split_portrait_display_mode(choice);
+            [root.view setNeedsLayout];[root.view layoutIfNeeded];
+        }];
+        action.state=choice==mode?UIMenuElementStateOn:UIMenuElementStateOff;
+        [choices addObject:action];
+    }
+    self.portraitFramingButton.menu=[UIMenu menuWithTitle:title children:choices];
+    self.portraitFramingMenuMode=mode;
+    self.portraitFramingButton.accessibilityLabel=title;
+    self.portraitFramingButton.accessibilityValue=labels[mode==ACNH_DISPLAY_AUTO?0:1];
+}
+- (void)layoutPortraitFramingButton:(BOOL)visible panel:(CGRect)panel mode:(int)mode {
+    if(visible&&!self.portraitFramingButton){
+        UIButtonConfiguration *config=[UIButtonConfiguration filledButtonConfiguration];
+        config.image=[UIImage systemImageNamed:@"arrow.up.left.and.arrow.down.right"];
+        config.baseForegroundColor=UIColor.whiteColor;
+        config.baseBackgroundColor=[UIColor colorWithWhite:0.15 alpha:0.8];
+        config.cornerStyle=UIButtonConfigurationCornerStyleCapsule;
+        self.portraitFramingButton=[UIButton buttonWithConfiguration:config primaryAction:nil];
+        self.portraitFramingButton.showsMenuAsPrimaryAction=YES;
+        [self.view insertSubview:self.portraitFramingButton belowSubview:self.pad];
+    }
+    self.portraitFramingButton.hidden=!visible;
+    if(!visible)return;
+    CGRect safe=UIEdgeInsetsInsetRect(self.view.bounds,self.view.safeAreaInsets);
+    CGFloat right=MIN(CGRectGetMaxX(safe),CGRectGetMaxX(panel));
+    self.portraitFramingButton.frame=CGRectMake(right-52,CGRectGetMinY(panel)+8,44,44);
+    if(!self.portraitFramingButton.menu||self.portraitFramingMenuMode!=mode)[self updatePortraitFramingMenu:mode];
+}
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
     if (!self.game) return;
+    BOOL portrait=acnh_portrait_companion_active(self.view);
+    self.pad.clipsToBounds=portrait;
     if(tv_active()) {
         self.pad.frame=acnh_pad_frame(self.view);
         self.miniMap.hidden=YES;atomic_store(&g_minimap_enabled,0);
-        self.companion.view.hidden=YES;dm_companion_ui_state(1,0,0);
-        acnh_wide_set_aspect(16.f/9.f);acnh_wide_set_present_full(0);
+        self.companion.view.hidden=YES;self.portraitFramingButton.hidden=YES;dm_companion_ui_state(1,0,0);
+        acnh_wide_set_aspect(16.f/9.f);acnh_wide_set_present_mode(ACNH_PRESENT_FIT);
         return;
     }
-    BOOL portrait=acnh_portrait_companion_active(self.view);
+    BOOL splitPortrait=acnh_split_portrait_companion_active(self.view);
+    int mode=acnh_display_mode_for_view(self.view);
+    CGRect panel=acnh_companion_frame(self.view);
     if(portrait&&!self.companion){
         self.companion=CFBridgingRelease(dm_companion_view_controller());
         [self addChildViewController:self.companion];
@@ -191,22 +255,37 @@ static void launcher_done(void) { [g_root startGame]; }
     }
     if(self.companion){
         self.companion.view.hidden=!portrait;
-        self.companion.view.frame=acnh_companion_frame(self.view);
+        self.companion.view.frame=panel;
         dm_companion_ui_state(1,0,portrait && UIApplication.sharedApplication.applicationState==UIApplicationStateActive);
     }
-    CGRect previous=self.pad.frame;
+    CGRect previous=self.pad.frame,previousGame=self.game.frame,previousTouch=self.game.screenTouchRect;
     CGRect viewport=acnh_game_viewport(self.view);
     self.gameContainer.frame=viewport;
     BOOL expand=acnh_expanded_view_active(self.view);
     acnh_wide_set_aspect(expand?viewport.size.width/viewport.size.height:16.f/9.f);
-    acnh_wide_set_present_full(expand||(!portrait&&acnh_display_mode()==ACNH_DISPLAY_STRETCH));
-    self.game.stretchPicture=NO; // Render into the native drawable; final GPU viewport controls presentation.
-    self.game.frame=CGRectOffset(acnh_game_frame(self.view),-viewport.origin.x,-viewport.origin.y);
-    static CGRect lastWideFrame;static int lastWideMode=-1;
-    if(!CGRectEqualToRect(lastWideFrame,self.game.frame)||lastWideMode!=acnh_display_mode()){
-        lastWideFrame=self.game.frame;lastWideMode=acnh_display_mode();
-        fprintf(stderr,"[ACNH display] iOS mode=%d expand=%d root=%.1fx%.1f viewport=%.1fx%.1f game=%.1f,%.1f %.1fx%.1f\n",lastWideMode,expand,self.view.bounds.size.width,self.view.bounds.size.height,viewport.size.width,viewport.size.height,self.game.frame.origin.x,self.game.frame.origin.y,self.game.frame.size.width,self.game.frame.size.height);
+    int presentation=splitPortrait?ACNH_PRESENT_STRICT_FIT:ACNH_PRESENT_FIT;
+    if(expand||(!portrait&&mode==ACNH_DISPLAY_STRETCH))presentation=ACNH_PRESENT_FILL;
+    acnh_wide_set_present_mode(presentation);
+    self.game.stretchPicture=NO;
+    CGRect image=CGRectOffset(acnh_game_frame(self.view),-viewport.origin.x,-viewport.origin.y);
+    // Both portrait picture modes use the same upper drawable. Metal fits the original
+    // 16:9 image within it, and only the visible image receives game touches.
+    self.game.frame=splitPortrait?self.gameContainer.bounds:image;
+    if(splitPortrait&&!expand){
+        CGFloat scale=acnh_view_display_scale(self.game);
+        double rect[4];
+        acnh_present_rect(viewport.size.width*scale,viewport.size.height*scale,16,9,presentation,rect);
+        image=CGRectMake(rect[0]/scale,rect[1]/scale,rect[2]/scale,rect[3]/scale);
     }
+    self.game.screenTouchRect=splitPortrait?image:CGRectZero;
+    static CGRect lastWideFrame,lastPanel;static int lastWideMode=-1;
+    if(!CGRectEqualToRect(lastWideFrame,image)||!CGRectEqualToRect(lastPanel,panel)||lastWideMode!=mode){
+        lastWideFrame=image;lastPanel=panel;lastWideMode=mode;
+        CGSize windowSize=self.view.window.bounds.size;
+        const char *layout=splitPortrait?"portrait-half":acnh_tabletop_active(self.view)?"tabletop":"single";
+        fprintf(stderr,"[ACNH display] iOS layout=%s mode=%d expand=%d root=%.1fx%.1f window=%.1fx%.1f viewport=%.1fx%.1f game=%.1f,%.1f %.1fx%.1f companion=%.1f,%.1f %.1fx%.1f\n",layout,mode,expand,self.view.bounds.size.width,self.view.bounds.size.height,windowSize.width,windowSize.height,viewport.size.width,viewport.size.height,image.origin.x,image.origin.y,image.size.width,image.size.height,panel.origin.x,panel.origin.y,panel.size.width,panel.size.height);
+    }
+    [self layoutPortraitFramingButton:splitPortrait&&!portrait_framing_locked() panel:panel mode:mode];
     self.pad.frame=acnh_pad_frame(self.view);
     BOOL tabletop=acnh_tabletop_active(self.view)&&!portrait;
     self.game.separateTouch=tabletop||portrait;
@@ -216,7 +295,9 @@ static void launcher_done(void) { [g_root startGame]; }
     self.miniMap.hidden=!tabletop;
     [self.miniMap setNeedsLayout];[self.miniMap layoutIfNeeded];
     atomic_store(&g_minimap_enabled,tabletop);
-    if(!CGRectEqualToRect(previous,self.pad.frame)){dm_gamepad_reset();[self.game resetScreenTouches];}
+    BOOL padChanged=!CGRectEqualToRect(previous,self.pad.frame);
+    if(padChanged)dm_gamepad_reset();
+    if(padChanged||!CGRectEqualToRect(previousGame,self.game.frame)||!CGRectEqualToRect(previousTouch,self.game.screenTouchRect))[self.game resetScreenTouches];
     [self.game setNeedsLayout];[self.pad setNeedsLayout];
     if (self.fps) {   // the top row's free stretch: right of DmGamepad.m's L3 key (102 + 17 of its units from the safe edge), level with − / + (22 units down); u is its unit
         CGRect s = acnh_has_hinge(self.view)?self.pad.frame:UIEdgeInsetsInsetRect(self.view.bounds,self.view.safeAreaInsets); CGFloat u = MIN((acnh_has_hinge(self.view)?s.size.height:self.view.bounds.size.height) / 430.0, 1.3);
@@ -285,7 +366,7 @@ static BOOL tv_active(void) { return g_tv && g_root.game.superview==g_tv.rootVie
 static void tv_attach(void) {
     DmGameView *v = g_root.game; if (!g_tv || !v || v.superview == g_tv.rootViewController.view) return;
     [g_tv.rootViewController.view addSubview:v]; [g_tv.rootViewController.view setNeedsLayout];
-    acnh_wide_set_aspect(16.f/9.f);acnh_wide_set_present_full(0);
+    acnh_wide_set_aspect(16.f/9.f);acnh_wide_set_present_mode(ACNH_PRESENT_FIT);
     [g_root.view setNeedsLayout];
     // at most 1080p: the game renders 1080p docked, and a 4K drawable only adds an upscale and a 4K stream (an AirPlay TV showed black, the GPU went from 15 to 60 ms a frame).
     // Taken from the 16:9 picture, not the screen, so a display of another shape still gets the full 1920 pixels across the picture

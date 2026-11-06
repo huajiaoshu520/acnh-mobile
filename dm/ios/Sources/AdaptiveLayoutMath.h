@@ -25,6 +25,29 @@ static inline CGRect acnh_display_frame(CGRect viewport,int mode) {
  CGFloat w=16*scale,h=9*scale;
  return CGRectMake(CGRectGetMidX(viewport)-w/2,CGRectGetMidY(viewport)-h/2,w,h);
 }
+static inline CGRect acnh_portrait_region(CGRect canvas,CGFloat upper_height,int lower) {
+ if(lower)return CGRectMake(canvas.origin.x,canvas.origin.y+upper_height,canvas.size.width,fmax(0,canvas.size.height-upper_height));
+ canvas.size.height=upper_height;
+ return canvas;
+}
+static inline int acnh_split_portrait_bounds(CGRect bounds) {
+ return bounds.size.width>0&&bounds.size.height>bounds.size.width;
+}
+static inline CGRect acnh_split_portrait_region(CGRect canvas,CGFloat scale,int lower) {
+ if(!isfinite(scale)||scale<=0)scale=1;
+ // Both halves meet on the same drawable pixel, even at fractional point sizes.
+ CGFloat height=round(canvas.size.height*scale/2)/scale;
+ return acnh_portrait_region(canvas,height,lower);
+}
+static inline int acnh_split_portrait_mode(int launcher,int override) {
+ if(override==ACNH_DISPLAY_AUTO||override==ACNH_DISPLAY_ORIGINAL)return override;
+ return launcher==ACNH_DISPLAY_AUTO?ACNH_DISPLAY_AUTO:ACNH_DISPLAY_ORIGINAL;
+}
+static inline int acnh_split_portrait_expand(int mode,CGSize size) {
+ if(mode!=ACNH_DISPLAY_AUTO||size.width<=0||size.height<=0)return 0;
+ double aspect=size.width/size.height;
+ return aspect>=1.0&&aspect<=2.6;
+}
 // Use the displayed image's actual rectangle, including the hidden part of aspect-fill.
 static inline int acnh_game_touch(CGPoint point,CGRect image,CGPoint *normalized) {
  if(image.size.width<=0||image.size.height<=0)return 0;

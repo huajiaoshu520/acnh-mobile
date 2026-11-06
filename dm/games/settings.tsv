@@ -21,7 +21,7 @@ DM_OPMODE	choice	1=Docked,0=Handheld	DM_GAME_OPMODE	always	Game	Console mode		le
 DM_PRESENT_UPSCALE	choice	off=Standard,metalfx=MetalFX	off	always	Game	Upscaling	Uses more GPU time and can increase heat.
 DM_LANG	choice	languages	build:DM_LANG	languages>1	Game	Game language		level=basic
 DM_FULLSCREEN	choice	0=Window,1=Fullscreen	0	platform:mac	Game	Display mode		level=basic
-ACNH_DISPLAY_MODE	choice	auto=Adaptive,original=Original,stretch=Stretch,crop=Crop	auto	platform:ios	Game	Picture mode	Adaptive expands the view on supported wide iPhones without stretching the world or UI; iPad keeps its existing layout. Original keeps 16:9. Stretch fills the screen; Crop hides the edges.
+ACNH_DISPLAY_MODE	choice	auto=Adaptive,original=Original,stretch=Stretch,crop=Crop	auto	platform:ios	Game	Picture mode	Adaptive expands the view on supported iPhones and iPads without stretching. On iPad in portrait the two screens share the height equally. Original fits the complete 16:9 image. In single-screen layouts, Stretch fills the screen and Crop hides the edges.
 DM_SHOW_FPS	toggle	-	build:DM_SHOW_FPS	platform:ios	Game	Frame-rate counter
 ACNH_CONTROLLER_LAYOUT	choice	generic=Generic,acnh=Dedicated,custom=Custom	acnh	platform:ios	Controls	Controller layout
 ACNH_CUSTOM_BASE	choice	generic=Generic,acnh=Dedicated	acnh	platform:ios	Controls	Customize from		needs=ACNH_CONTROLLER_LAYOUT=custom

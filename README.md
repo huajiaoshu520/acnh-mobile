@@ -1,15 +1,15 @@
 # ACNH Mobile
 
-**0.3.129 · build 152 — official Metal 4 runtime, iOS/iPadOS 26+.**
+**0.3.132 · build 155 — official Metal 4 runtime, iOS/iPadOS 26+.**
 
 Devices with hardware BC texture support use the existing GPU path. The CPU fallback for devices without hardware BC support still needs A15/A16 device testing.
 
-Portrait companion now enables checked pocket moves, item actions, sorting and tool-ring interactions for the matching ACNH 3.0.3 build. Lower-screen Press A remains gated by upper-screen title readiness. Real iPad/Duo interaction verification is pending.
+iPad portrait mode splits the game and companion into equal halves. Original preserves the full 16:9 image; Adaptive expands the upper view. Generic, dedicated and custom touch controls use the lower control area. The companion supports pocket moves, item actions, sorting and tool-ring interactions on the matching ACNH 3.0.3 build. Lower-screen Press A follows upper-screen title readiness.
 
 
 Optional iCloud Drive save sharing is available in the iPhone and Mac launchers; choose the same folder on both devices. Replaced saves are backed up locally.
 
-Experimental same-Wi-Fi local networking is included as an ACNH-only patch. LiveContainer + SideStore users should install the attached LAN host and allow Local Network access. The same patched host can be reused. [Release notes](docs/RELEASE-v0.3.129.en.md).
+Experimental same-Wi-Fi local networking is included as an ACNH-only patch. LiveContainer + SideStore users should install the attached LAN host and allow Local Network access. The same patched host can be reused. [Release notes](docs/RELEASE-v0.3.132.en.md).
 A native compatibility runtime for Animal Crossing: New Horizons 3.0.3. The runtime and shader translation sources are based on [NXNative](https://github.com/seedds/nxnative) commit `742c9fb83c3719674720ede99da6c1bc997904da`.
 
 This edition uses the official Metal 4 replay path and matching shader chain. It retains ACNH's icon touch controls, tool wheel, physical controllers, R/field-triggered Chinese text input, direct external `.data` access, transactional saves, amiibo file import, Photos export and bounded haptics. Custom touch layouts can be edited from startup settings; there is no added in-game typing toolbar.
