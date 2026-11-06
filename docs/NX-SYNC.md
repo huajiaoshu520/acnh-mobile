@@ -53,3 +53,7 @@ Reviewed upstream through 975bb4c14456d145eb3d969814534eecdd996ce9. Imported the
 ## 0.3.125 / 148
 
 Reviewed NXNative through `865cc35fad70`. Synchronized the Mac offline pipeline prebuild worker selection from `72d005717b20` and its regression test. The game shader chain remains `55b6fe4e578d`.
+
+## 0.3.126 / 149
+
+Reviewed NXNative through `671c68e139ec`. Synchronized NVN event storage queries (`69cb9b6effee`), compatible cube and array texture views (`c83c48f2b47c`), and reuse of RomFS images after a volume remount (`a2d39a26306c`). Adapted the SDK audio lock lookup from `5219060397d2` to ACNH's single-renderer path while preserving the fallback. The shader chain remains `55b6fe4e578d`.

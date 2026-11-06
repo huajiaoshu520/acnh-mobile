@@ -382,12 +382,10 @@ static pthread_mutex_t g_render_mu = PTHREAD_MUTEX_INITIALIZER;
 static _Atomic uint64_t g_updates, g_renders, g_catchups;
 // SDK 20's AudioRenderSystem (The Legend of Zelda: Breath of the Wild 1.9.0) has another layout: the member functions for mode / device / command buffer are inlined (sdk+0x22a70c ExecuteAudioRendererRendering:
 //   +0x48 rendering device and +0x4c execution mode, both must be 1; +0xf8 / +0x100 command buffer start / length), GenerateCommand takes a Span<std::byte> and returns a Span (x0 start, x1 length: the generated command list),
-//   and the mutex UpdateImpl holds is at +0x2d0 (+0x1f0 in SDK 16). The layout is recognized by the presence of the Span version of GenerateCommand
+//   and the update lock sits further on (update_lock). The layout is recognized by the presence of the Span version of GenerateCommand
 typedef struct { uint8_t *p; size_t n; } span_t;
-// The update lock before SDK 19 is the one AudioRenderSystem::Update takes at its start, read off the SDK's own code: nn::os::LockMutex(MutexType*) at +0x1f8 in SDK 3.5.1 (OCTOPATH TRAVELER), +0x1d0 in SDK 4.4.0 (Mario Kart 8 Deluxe)
-//   and at +0x1d8 in SDK 6.4–8.2, SdkMutexType::Lock at +0x1d8 in SDK 10.4–11.4, +0x1f0 in 13.3–16.2, +0x1f8 in 17.5 (the sdk builds of 24 games on hand; 19 and 20 inline it).
-//   The SDK 16 layout (SdkMutexType at +0x1f0) taken for all of them wrote a lock word into another field and excluded nothing. The prologue copies `this`, adds the offset into a register
-//   and moves it to x0 before the first bl, a PLT stub whose GOT slot the loader bound to one of the two functions; anything else keeps the SDK 16 layout
+// SDKs before 19 take the update lock at the start of AudioRenderSystem::Update. Later SDKs take it in UpdateImpl (+0x2d0 in SDK 19–21 and +0x2d8 in SDK 22).
+// Read the offset from the SDK's prologue: it copies `this`, adds the offset and passes the result as x0 to the lock function, directly or through a PLT stub.
 static void *plt_target(const uint32_t *pc) {   // adrp x16, page; ldr x17, [x16, #off]; …; br x17 → the function the GOT slot holds; else the address itself
     uint32_t a = pc[0], l = pc[1];
     if ((a & 0x9f00001fu) != 0x90000010u || (l & 0xffc003ffu) != 0xf9400211u) return (void *)pc;
@@ -395,8 +393,8 @@ static void *plt_target(const uint32_t *pc) {   // adrp x16, page; ldr x17, [x16
     uint64_t page = ((uint64_t)pc & ~0xfffull) + (uint64_t)imm;
     return *(void **)(page + ((l >> 10) & 0xfff) * 8);
 }
-static int update_lock(size_t *off, int *os_mutex) {
-    const uint32_t *f = guest_sym("_ZN2nn5audio6server17AudioRenderSystem6UpdateEPvmS3_mPKvm");
+static int lock_in(const char *fn, size_t *off, int *os_mutex) {
+    const uint32_t *f = guest_sym(fn);
     void *lock_mutex = guest_sym("_ZN2nn2os9LockMutexEPNS0_9MutexTypeE"), *sdk_lock = guest_sym("_ZN2nn2os12SdkMutexType4LockEv");
     if (!f) return 0;
     uint32_t self = 1u << 0; int64_t add[32]; for (int r = 0; r < 32; r++) add[r] = -1;
@@ -417,6 +415,12 @@ static int update_lock(size_t *off, int *os_mutex) {
     }
     return 0;
 }
+static int update_lock(size_t *off, int *os_mutex) {
+    if (lock_in("_ZN2nn5audio6server17AudioRenderSystem6UpdateEPvmS3_mPKvm", off, os_mutex) ||
+        lock_in("_ZN2nn5audio6server17AudioRenderSystem10UpdateImplEPvmS3_mPKvm", off, os_mutex)) return 1;
+    LOG("[RED] audren: no update lock read off AudioRenderSystem::Update or UpdateImpl: keeping +%#zx, where command generation may race the game's RequestUpdate", *off);
+    return 0;
+}
 static Result render_once(uint8_t *sys, int16_t *dst, int *nout) {
     static int (*mode)(void *), (*device)(void *); static uint8_t *(*cbuf)(void *); static size_t (*cbsz)(void *), (*gen)(void *, void *, size_t);
     static span_t (*gen20)(void *, void *, size_t); static size_t mu_off;
@@ -431,7 +435,7 @@ static Result render_once(uint8_t *sys, int16_t *dst, int *nout) {
         mu_off = gen20 ? 0x2d0 : 0x1f0; g_sink_id = gen20 ? 0x14 : 0x13;
         int os_mutex = 0;
         // SdkMutexType is looked up only when the SDK uses it: SDK 3.5.1 has none (OCTOPATH TRAVELER: LockMutex at +0x1f8)
-        if (!gen20 && update_lock(&mu_off, &os_mutex) && os_mutex) { lock = gsym("_ZN2nn2os9LockMutexEPNS0_9MutexTypeE"); unlock = gsym("_ZN2nn2os11UnlockMutexEPNS0_9MutexTypeE"); }
+        if (update_lock(&mu_off, &os_mutex) && os_mutex) { lock = gsym("_ZN2nn2os9LockMutexEPNS0_9MutexTypeE"); unlock = gsym("_ZN2nn2os11UnlockMutexEPNS0_9MutexTypeE"); }
         else { lock = gsym("_ZN2nn2os12SdkMutexType4LockEv"); unlock = gsym("_ZN2nn2os12SdkMutexType6UnlockEv"); }
         LOG("audren: AudioRenderSystem in the SDK %s layout (update lock %s at +%#zx)", gen20 ? "20" : "16", os_mutex ? "nn::os::MutexType" : "SdkMutexType", mu_off);
         tmax = gsym("_ZN2nn5audio3dsp20CommandListProcessor17SetProcessTimeMaxEj"); setup = gsym("_ZN2nn5audio3dsp20CommandListProcessor5SetupEPKvm");
@@ -441,7 +445,7 @@ static Result render_once(uint8_t *sys, int16_t *dst, int *nout) {
     if (md != 1 || dv != 1) return 0x40299;   // same as the original: manual rendering needs CPU + manual mode
     pthread_mutex_lock(&g_render_mu);
     uint64_t t0 = now_ns();
-    // Command generation must exclude the game thread's RequestUpdate (AudioRenderSystem::Update, which holds the mutex at mu_off): the original system thread (SendCommandToDsp) generates under the same lock. Processing (the CPU DSP) stays outside the lock, as in the original.
+    // Command generation must exclude the game thread's RequestUpdate (the SDK's update path holds the mutex at mu_off): the original system thread (SendCommandToDsp) generates under the same lock. Processing (the CPU DSP) stays outside the lock, as in the original.
     uint8_t *cl; size_t n;
     lock(sys + mu_off);
     if (gen20) { span_t sp = gen20(sys, *(uint8_t **)(sys + 0xf8), *(size_t *)(sys + 0x100)); cl = sp.p; n = sp.n; }
