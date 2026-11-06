@@ -65,7 +65,7 @@ SHOW_FPS = True                         # True shows the game's frame rate on th
 MOTION = True                           # True passes a gyro controller's motion (on iOS also the phone's own) to games that read it; False builds with DM_MOTION=0, for when motion misbehaves (DM_MOTION=1 in the app's Documents/env.txt turns it back on without a rebuild)
 SURVEY_ONLY = False                     # a game with no profile in dm/games: only write the survey, no provisional profile and no IPA
 PROFILE_OUT = ''                        # where a provisional profile goes (empty = <build folder>/profile, i.e. <NSP folder>/<title ID>_build/profile unless WORK_DIR is set; the profile is <this>/<title ID>/)
-ALLOW_DAMAGED = False                   # a damaged NSP (files failing the NCA's hash check: an incomplete copy or a broken download) stops the build; True writes those files as read and goes on
+ALLOW_DAMAGED = False                   # a damaged NSP or a RomFS file with an invalid format header stops the build; True writes those files as read and goes on
 ALLOW_SHADER_REGRESSIONS = False        # shaders that translated in this game's previous build and fail with the current translation chain stop the build (logs/shader_regressions.log lists them);
                                         #   True packs the app without them
 ALLOW_OTHER_METAL = False               # an NVN game's shaders are built only with the Metal compiler they were tested with (dm/gfx/tools/dmsh_chain.lock: Xcode 27.2); another one stops the build,
@@ -1124,6 +1124,36 @@ def extract(nx, keys, ex, name, base, upd, cmp_dir, logs, g, app):   # the build
     n, b = extracted(log) or (0, 0)
     PROG.end(f'{n:,} files, {amount(b, "B")}')
     return dst
+
+
+def check_formats(dirs):
+    """Check extracted images before rewriting or building shaders, including reused images."""
+    import romfs_image
+    for ver, directory in dirs.items():
+        img = directory / 'RomFS.img'
+        stamp = directory / 'RomFS.img.formats'
+        ident = romfs_image.file_identity(img)
+        try:
+            cached = json.loads(stamp.read_text())
+        except (OSError, ValueError):
+            cached = None
+        if isinstance(cached, dict) and cached.get('image') == ident and isinstance(cached.get('mismatches'), list):
+            bad = cached['mismatches']
+        else:
+            PROG.add(1)
+            PROG.stage(f'check {ver} files', step='reading file headers', unit='files')
+            bad = [(p, size, head.hex()) for p, size, head in
+                   romfs_image.format_mismatches(img, lambda done, total: PROG.set(done=done, total=total))]
+            if romfs_image.file_identity(img) != ident:
+                raise BuildError(f'{ver}: the RomFS image changed during the file-header check; run the build again')
+            atomic_text(stamp, json.dumps({'image': ident, 'mismatches': bad}) + '\n')
+            PROG.end(f'{len(bad)} damaged' if bad else 'ok')
+        if not bad: continue
+        rows = '\n'.join(f'  {p} ({size:,} bytes, starts {head or "(nothing)"})' for p, size, head in bad[:20])
+        if len(bad) > 20: rows += f'\n  … {len(bad) - 20} more'
+        msg = f'{ver}: {len(bad)} RomFS file(s) with an invalid zstd header:\n{rows}'
+        if not ALLOW_DAMAGED: raise BuildError(f'{msg}\nPack again from a good copy of the game (--allow-damaged packs these files as they are)')
+        say(f'[RED] {msg}\npacked as they are (--allow-damaged)')
 
 
 def extract_aoc(nx, keys, repo, work, app, fam, logs):
@@ -2350,7 +2380,7 @@ def parse_args(argv):
     ap.add_argument('--show-fps', action=argparse.BooleanOptionalAction, help='show the game\'s frame rate on the iPhone, frames on screen per second at the top left (default: the SHOW_FPS setting, on)')
     ap.add_argument('--motion', action=argparse.BooleanOptionalAction, help='pass a gyro controller\'s motion (on iOS also the phone\'s own) to games that read it; --no-motion builds with DM_MOTION=0, for when motion misbehaves (default: the MOTION setting, on)')
     ap.add_argument('--survey-only', action='store_true', help='a game with no profile: only the survey, no provisional profile and no IPA')
-    ap.add_argument('--allow-damaged', action='store_true', help='a damaged NSP (files failing the NCA hash check): write them as read and go on instead of stopping')
+    ap.add_argument('--allow-damaged', action='store_true', help='a damaged NSP or a RomFS file with an invalid format header: use it as read and go on instead of stopping')
     ap.add_argument('--allow-shader-regressions', action='store_true', help='shaders that translated in the game\'s previous build and fail with the current translation chain: '
                     'pack the app without them instead of stopping')
     ap.add_argument('--allow-other-metal', action='store_true', help='an NVN game: build its shaders with this Mac\'s Metal compiler when it is not the one they were tested with '
@@ -2544,6 +2574,7 @@ def main(args=None):
     for ver in versions:   # each merged version streams directly into its own image
         b, u = picks[ver]
         dirs[ver] = extract(nx, keys, ex, ver, b, u, None, logs, g, app)
+    check_formats(dirs)
     check_versions_aarch64(dirs, logs, g, nacp.name(dirs[versions[0]] / 'control.nacp') or f'{app:016X}')   # before build_mismatch, derive_profile and build_sources read the modules
     bad = [] if derived else [f'{v}: {x}' for v in versions for x in build_mismatch(dirs[v], v, g)]   # every module's build ID must be the one the profile registers for its version
     if bad and provisional: raise BuildError(f'not the builds provisional game profile {g.id} registers: {"; ".join(bad)}')

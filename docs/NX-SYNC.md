@@ -57,3 +57,7 @@ Reviewed NXNative through `865cc35fad70`. Synchronized the Mac offline pipeline 
 ## 0.3.126 / 149
 
 Reviewed NXNative through `671c68e139ec`. Synchronized NVN event storage queries (`69cb9b6effee`), compatible cube and array texture views (`c83c48f2b47c`), and reuse of RomFS images after a volume remount (`a2d39a26306c`). Adapted the SDK audio lock lookup from `5219060397d2` to ACNH's single-renderer path while preserving the fallback. The shader chain remains `55b6fe4e578d`.
+
+## 0.3.129 / 152
+
+Reviewed NXNative through `b2d46b86d03f`. Synchronized Metal 4 specialization descriptor ownership (`88c7e03f51e3`), texture lookup ordering during memory pool destruction (`c229bd7d52e3`), and queue-owned render target descriptions (`48d0b372437d`). Adapted extracted RomFS Zstandard header checks from `6bbdbbe25511` to the existing NSP build path. The matching shader chain remains `55b6fe4e578d`.
