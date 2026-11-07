@@ -14,7 +14,7 @@ static uint8_t *mem;
 static uint64_t running;   // the fence of the submission that stays unfinished
 
 // What the open submission has queued goes into the running one
-static void commit_as_running(void) { gw_commit(running); g_nubd = 0; memset(g_ubd_pf, 0, sizeof g_ubd_pf); g_ubd_wide = 0; pend_reset(); memset(g_ubpc, 0, sizeof g_ubpc); }
+static void commit_as_running(void) { gw_commit(running); g_nubd = 0; ubd_pf_reset(); pend_reset(); memset(g_ubpc, 0, sizeof g_ubpc); }
 static void update(uint64_t off, uint32_t value, uint64_t n) { uint32_t v[16]; for (int i = 0; i < 16; i++) v[i] = value; mtl_sub_update(v, (uint64_t)mem + off, n); }
 static const uint32_t *made_shadow(uint64_t off, uint64_t n) {
     uint64_t g; const uint8_t *c; if (!ubp_get((uint64_t)mem + off, (uint64_t)mem + off + n, &g, &c)) return NULL;
@@ -36,6 +36,13 @@ int main(void) { @autoreleasepool {
     memset(mem, 0x11, LEN);
 
     // The first case: every frame the same fields, with a hole (word 1) nothing updates
+    // Wide updates bypass the page table, but ranges outside their bounds
+    // still miss, including reads that touch only the end of an update.
+    ubd_pf_add(0x10000, 0x30000);
+    CHECK(ubd_pf_hit(0x2fffc, 0x30004), "the bounds retain overlapping reads");
+    CHECK(!ubd_pf_hit(0x30000, 0x70000), "a disjoint wide read bypasses the filter");
+    ubd_pf_reset();
+    CHECK(!ubd_pf_hit(0x10000, 0x30000), "reset clears the deferred bounds");
     update(0, 0xa0, 4); update(8, 0xa2, 4); commit_as_running();
     update(0, 0xb0, 4); update(8, 0xb2, 4);
     { const uint32_t want[] = {0xb0, 0x11111111, 0xb2}; words(made_shadow(0, 12), want, 3, "a hole beside fields updated by a running submission reads memory"); }

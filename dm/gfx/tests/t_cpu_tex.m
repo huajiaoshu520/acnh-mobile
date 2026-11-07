@@ -141,6 +141,32 @@ static void finalize_during_walk(void) {
     mtl_reg_tex(1,NULL,NULL); h_nvnTextureFinalize(&tex);
     defer_drain(); munmap(mem,len);
 }
+// Force a cached standalone view through the generation recheck after its backing texture is gone.
+static void missing_base_drops_view(void) {
+    enum { tid = 9 };
+    MTLTextureDescriptor *d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm width:4 height:4 mipmapped:NO];
+    id<MTLTexture> view = [g_dev newTextureWithDescriptor:d];
+    CHECK(view && !view.parentTexture, "the cached base texture has no parent");
+    if (!view) return;
+    tex_t t = {.serial=nvn_new_serial()};
+    mtl_tex_init(&t);
+    mtl_reg_tex(tid, &t, NULL);
+    os_unfair_lock_lock(&g_rmu);
+    treg_t *r = &g_treg[tid];
+    r->gone = 1;
+    r->view = (void *)CFBridgingRetain(view);
+    r->view_ser = g_ser_gen - 1;
+    r->view_rid = view.gpuResourceID._impl;
+    CHECK(!treg_tex(r), "the registered texture no longer has a backing");
+    void *resolved = NULL;
+    uint64_t rid = tex_fast_rid(tid, &resolved);
+    CHECK(!rid && !resolved, "a missing backing texture returns an empty resource ID");
+    CHECK(!r->view && !r->view_rid, "the stale view and cached resource ID are dropped");
+    os_unfair_lock_unlock(&g_rmu);
+    mtl_reg_tex(tid, NULL, NULL);
+    mtl_tex_release(&t);
+    defer_drain();
+}
 int main(int argc, const char **argv) { @autoreleasepool {
     enum { N = 6442, BASE = 1000 };
     static tex_t t[N];
@@ -166,6 +192,6 @@ int main(int argc, const char **argv) { @autoreleasepool {
     CHECK(mtl_cpu_tex_count() == N - 2, "a texture with no serial is not recorded");
     for (int i=0;i<N;i++) mtl_tex_release(&t[i]);
     retired_classification(); descriptor_replacement();
-    if (argc > 1 && !strcmp(argv[1], "--metal")) { mtl_init(); finalized_upload(0); finalized_upload(1); finalize_during_walk(); }
+    if (argc > 1 && !strcmp(argv[1], "--metal")) { mtl_init(); finalized_upload(0); finalized_upload(1); finalize_during_walk(); missing_base_drops_view(); }
     printf("t_cpu_tex: %d checks, %d failed\n", checks, failed); return failed != 0;
 } }

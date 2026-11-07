@@ -61,3 +61,7 @@ Reviewed NXNative through `671c68e139ec`. Synchronized NVN event storage queries
 ## 0.3.129 / 152
 
 Reviewed NXNative through `b2d46b86d03f`. Synchronized Metal 4 specialization descriptor ownership (`88c7e03f51e3`), texture lookup ordering during memory pool destruction (`c229bd7d52e3`), and queue-owned render target descriptions (`48d0b372437d`). Adapted extracted RomFS Zstandard header checks from `6bbdbbe25511` to the existing NSP build path. The matching shader chain remains `55b6fe4e578d`.
+
+## 0.3.133 / 156
+
+Reviewed NXNative through `d4c11e2b8472`. Adapted stale texture view invalidation (`0e4480d263ad`) and deferred uniform address bounds (`f09f721c763d`) to the existing renderer. Synchronized the queue-owned render target check (`362f77257b1e`) and graphics test host stubs (`060aef96ddfa`). The matching shader chain remains `55b6fe4e578d`.
