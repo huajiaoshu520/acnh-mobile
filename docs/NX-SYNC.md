@@ -65,3 +65,7 @@ Reviewed NXNative through `b2d46b86d03f`. Synchronized Metal 4 specialization de
 ## 0.3.133 / 156
 
 Reviewed NXNative through `d4c11e2b8472`. Adapted stale texture view invalidation (`0e4480d263ad`) and deferred uniform address bounds (`f09f721c763d`) to the existing renderer. Synchronized the queue-owned render target check (`362f77257b1e`) and graphics test host stubs (`060aef96ddfa`). The matching shader chain remains `55b6fe4e578d`.
+
+## 0.3.134 / 157
+
+Reviewed NXNative through `bd979ced3ae6`. Synchronized kernel synchronization wait ownership and wake recording (`db206a46045f`), fixed-refresh fullscreen pacing (`490859ea7d6a`), caller tool path precedence (`2bd920a9ef17`), and test paths containing spaces (`12ddb1fb75f0`). Adapted shader-code address checks without GPU residency (`f25fa9562ee9`) to the existing memory pool table. The matching shader chain remains `55b6fe4e578d`.
