@@ -119,19 +119,25 @@ void acnh_observe_display(UIView *view) {
  }
 #endif
 }
-CGPoint acnh_control_point(UIView *view,CGPoint point,CGFloat radius,BOOL keepOverlayDefault) {
- if(!acnh_has_hinge(view))return point;
- CGRect safe=UIEdgeInsetsInsetRect(view.bounds,view.safeAreaInsets);CGRect regions[32];int count=0;
+BOOL acnh_landscape_pad_overlay(UIView *view) {
+ UIView *parent=view.superview;
+ return parent&&parent.bounds.size.width>parent.bounds.size.height&&
+        view.bounds.size.width>view.bounds.size.height&&!acnh_tabletop_active(parent);
+}
+CGPoint acnh_control_point(UIView *view,CGPoint point,CGFloat radius,BOOL keepOverlayDefault,CGRect peer) {
+ BOOL hinge=acnh_has_hinge(view);
+ if(!hinge&&CGRectIsNull(peer))return point;
+ CGRect safe=keepOverlayDefault?view.bounds:UIEdgeInsetsInsetRect(view.bounds,view.safeAreaInsets);
+ CGRect regions[33];int count=0;
+ if(!CGRectIsNull(peer))regions[count++]=peer;
 #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 270100
- if(@available(iOS 27.1,*)) {
+ if(hinge)if(@available(iOS 27.1,*)) {
   for(UIViewReservedRegionKind *kind in @[[UIViewReservedRegionKind occlusionRegionKind],[UIViewReservedRegionKind divisionRegionKind]]){
    for(UIViewReservedRegion *region in [view reservedRegionsOfKind:kind]){
-    if(region.active&&!CGRectIsEmpty(region.frame)&&!CGRectIsInfinite(region.frame)&&count<32)regions[count++]=region.frame;
+    if(region.active&&!CGRectIsEmpty(region.frame)&&!CGRectIsInfinite(region.frame)&&count<33)regions[count++]=region.frame;
    }
   }
  }
 #endif
- UIView *parent=view.superview;
- BOOL landscapeOverlay=parent&&parent.bounds.size.width>parent.bounds.size.height&&CGRectEqualToRect(view.frame,parent.bounds);
- return acnh_clear_control(point,safe,radius,regions,count,keepOverlayDefault&&landscapeOverlay);
+ return acnh_clear_control(point,safe,radius,regions,count,keepOverlayDefault);
 }

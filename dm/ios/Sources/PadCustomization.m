@@ -36,15 +36,23 @@ static NSDictionary *values(NSString *base){
 }
 static CGFloat number(id v,CGFloat fallback){return pad_number(v,fallback);}
 CGFloat acnh_pad_scale(NSString *base,NSString *key){return pad_scale(values(base),key);}
-CGPoint acnh_pad_point(NSString *base,NSString *key,CGPoint p,UIView *v,CGFloat margin){
+CGPoint acnh_pad_point_avoiding(NSString *base,NSString *key,CGPoint p,UIView *v,CGFloat margin,CGRect peer){
  CGRect safe=UIEdgeInsetsInsetRect(v.bounds,v.safeAreaInsets);
  BOOL portrait=acnh_companion_controls_active(v);
  NSDictionary *layout=values(base);
+ NSDictionary *record=pad_record(layout,key);
+ BOOL keepOverlayDefault=[base isEqualToString:@"generic"]&&acnh_landscape_pad_overlay(v)&&!pad_has_position(record);
+ if(keepOverlayDefault){
+  if(record)p=pad_clamp_center(p,v.bounds,margin);
+  return acnh_control_point(v,p,margin,YES,peer);
+ }
  if(portrait)margin=MAX(14,margin);
  p=pad_point(layout,key,p,v.bounds,safe,margin);
  if(portrait)p=pad_clamp_center(p,safe,margin);
- BOOL keepOverlayDefault=!portrait&&[base isEqualToString:@"generic"]&&!pad_record(layout,key);
- return acnh_control_point(v,p,margin,keepOverlayDefault);
+ return acnh_control_point(v,p,margin,NO,CGRectNull);
+}
+CGPoint acnh_pad_point(NSString *base,NSString *key,CGPoint p,UIView *v,CGFloat margin){
+ return acnh_pad_point_avoiding(base,key,p,v,margin,CGRectNull);
 }
 NSDictionary *acnh_pad_control(NSString *key,NSString *name,CGPoint p,CGFloat r){return @{ @"key":key,@"name":name,@"x":@(p.x),@"y":@(p.y),@"r":@(r)};}
 static NSString *L(NSString *en,NSString *zh){return [NSLocale.preferredLanguages.firstObject hasPrefix:@"zh"]?zh:en;}

@@ -43,7 +43,23 @@ int main(void){
  }
  CGRect overlapping=CGRectMake(40,300,38,60);
  p=acnh_clear_control(stock[0],landscapeSafe,radii[0],&overlapping,1,1);
- assert(!CGPointEqualToPoint(p,stock[0])&&!acnh_control_blocked(p,radii[0],&overlapping,1));
+ assert(!CGPointEqualToPoint(p,stock[0])&&!acnh_circle_control_blocked(p,radii[0],&overlapping,1));
+ // The reference landscape layout places the stick at x=114 and the D-pad
+ // at x=264. The rectangular approximation pulled the stick to x=146.
+ CGRect landscape=CGRectMake(0,0,932,430);
+ CGRect edgeCamera=CGRectMake(20,184,42,68);
+ CGRect dpad=CGRectMake(264-52,345-52,104,104);
+ assert(acnh_control_blocked(stock[0],77,&edgeCamera,1));
+ assert(!acnh_circle_control_blocked(stock[0],77,&edgeCamera,1));
+ CGPoint old=acnh_clear_control(stock[0],landscapeSafe,77,&edgeCamera,1,0);
+ assert(old.x==146&&hypot(old.x-264,old.y-345)<77+48);
+ CGRect stockRegions[]={edgeCamera,dpad};
+ p=acnh_clear_control(stock[0],landscape,77,stockRegions,2,1);
+ assert(CGPointEqualToPoint(p,stock[0])&&264-48-(p.x+77)==25);
+ CGRect blockedRegions[]={overlapping,dpad};
+ p=acnh_clear_control(stock[0],landscape,77,blockedRegions,2,1);
+ assert(!CGPointEqualToPoint(p,stock[0])&&!acnh_circle_control_blocked(p,77,blockedRegions,2));
+ assert(CGRectContainsRect(landscape,CGRectMake(p.x-77,p.y-77,154,154)));
  CGRect u,l,s=CGRectMake(20,30,900,1250),d=CGRectMake(0,640,942,30);
  assert(acnh_tabletop_regions(s,&d,1,&u,&l));
  assert(CGRectGetMaxY(u)==640&&CGRectGetMinY(l)==670);
