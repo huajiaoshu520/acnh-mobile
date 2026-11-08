@@ -13,7 +13,7 @@ CGRect acnh_game_viewport(UIView *view);
 CGRect acnh_game_frame(UIView *view);
 CGRect acnh_pad_frame(UIView *view);
 BOOL acnh_tabletop_active(UIView *view);
-CGPoint acnh_control_point(UIView *view,CGPoint point,CGFloat radius);
+CGPoint acnh_control_point(UIView *view,CGPoint point,CGFloat radius,BOOL keepOverlayDefault);
 CGFloat acnh_view_display_scale(UIView *view);
 
 BOOL acnh_portrait_companion_active(UIView *view);

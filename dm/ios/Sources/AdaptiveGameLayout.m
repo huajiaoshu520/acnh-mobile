@@ -119,7 +119,7 @@ void acnh_observe_display(UIView *view) {
  }
 #endif
 }
-CGPoint acnh_control_point(UIView *view,CGPoint point,CGFloat radius) {
+CGPoint acnh_control_point(UIView *view,CGPoint point,CGFloat radius,BOOL keepOverlayDefault) {
  if(!acnh_has_hinge(view))return point;
  CGRect safe=UIEdgeInsetsInsetRect(view.bounds,view.safeAreaInsets);CGRect regions[32];int count=0;
 #if __IPHONE_OS_VERSION_MAX_ALLOWED >= 270100
@@ -131,5 +131,7 @@ CGPoint acnh_control_point(UIView *view,CGPoint point,CGFloat radius) {
   }
  }
 #endif
- return acnh_clear_control(point,safe,radius,regions,count);
+ UIView *parent=view.superview;
+ BOOL landscapeOverlay=parent&&parent.bounds.size.width>parent.bounds.size.height&&CGRectEqualToRect(view.frame,parent.bounds);
+ return acnh_clear_control(point,safe,radius,regions,count,keepOverlayDefault&&landscapeOverlay);
 }

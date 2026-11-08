@@ -1,6 +1,7 @@
 // NVN's queue initialization captures WINDOW_ORIGIN.FLIP_Y. The device origin
 // used to construct later viewports can change independently. Check actual
 // culling and front_facing pixels while alternating two queues on one device.
+// Also verify that render enable follows its own queue across submissions.
 #define nvn_game_fps nvn_game_fps_mtl_default
 #include "../nvn/nvn_mtl.m"
 #undef nvn_game_fps
@@ -19,6 +20,39 @@ static uint8_t commands[8192]; static size_t used;
 static void emit(unsigned op, const void *p, size_t n) {
     size_t size = (8 + n + 7) & ~7ull; op_hdr h = {op, (uint32_t)size};
     memcpy(commands + used, &h, 8); if (n) memcpy(commands + used + 8, p, n); used += size;
+}
+static void clear_on_queue(NVNqueue *queue, const tex_t *target, int render_mode, int channel) {
+    used = 0;
+    p_set_rt rt = {.n = 1, .color = {target}};
+    emit(OP_SET_RT, &rt, sizeof rt);
+    if (render_mode >= 0) {
+        p_render_cond condition = {.mode = render_mode};
+        emit(OP_RENDER_COND, &condition, sizeof condition);
+    }
+    p_clear_color clear = {.rgba = {0, 0, 0, 1}, .mask = 15};
+    clear.rgba[channel] = 1;
+    emit(OP_CLEAR_COLOR, &clear, sizeof clear);
+    emit(OP_END, NULL, 0);
+    NVNcommandHandle handle = (NVNcommandHandle)commands;
+    P(nvnQueueSubmitCommands)(queue, 1, &handle);
+    P(nvnQueueFinish)(queue);
+}
+static int clear_channel_matches(const tex_t *target, int channel) {
+    id<MTLBuffer> pixels = [g_dev newBufferWithLength:2048 options:MTLResourceStorageModeShared];
+    id<MTLCommandBuffer> cb = q_cb();
+    id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
+    [blit copyFromTexture:tex_mtl(target) sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(8, 8, 1)
+                 toBuffer:pixels destinationOffset:0 destinationBytesPerRow:256 destinationBytesPerImage:2048];
+    [blit endEncoding];
+    [cb commit];
+    [cb waitUntilCompleted];
+    uint8_t expected[4] = {0, 0, 0, 255};
+    expected[channel] = 255;
+    if (cb.status != MTLCommandBufferStatusCompleted) return 0;
+    for (int y = 0; y < 8; y++) for (int x = 0; x < 8; x++) {
+        if (memcmp((const uint8_t *)pixels.contents + 256*y + 4*x, expected, sizeof expected)) return 0;
+    }
+    return 1;
 }
 int main(void) { @autoreleasepool {
     mtl_init(); NSError *error = nil;
@@ -98,6 +132,26 @@ int main(void) { @autoreleasepool {
         if (!good) fprintf(stderr,"queue origin=%d device origin=%d front=%d cull=%d triangle CCW=%d\n",queue,current,winding,cull,ccw);
         CHECK(good,"queue-latched culling and front_facing match native GPU state");
     }
+    // OP_RENDER_COND modes 2 and 3 are unconditional enable and disable.
+    clear_on_queue(&queues[0], &target, 2, 2);
+    CHECK(clear_channel_matches(&target, 2), "enabled queue clears to blue");
+    clear_on_queue(&queues[0], &target, 3, 1);
+    CHECK(clear_channel_matches(&target, 2), "disable skips the current clear");
+    clear_on_queue(&queues[0], &target, -1, 1);
+    CHECK(clear_channel_matches(&target, 2), "disable persists into the next submission on the same queue");
+    clear_on_queue(&queues[1], &target, -1, 0);
+    CHECK(clear_channel_matches(&target, 0), "another queue remains enabled");
+    clear_on_queue(&queues[0], &target, -1, 1);
+    CHECK(clear_channel_matches(&target, 0), "switching back restores the disabled queue");
+    clear_on_queue(&queues[0], &target, 2, 1);
+    CHECK(clear_channel_matches(&target, 1), "re-enabling the queue restores clears");
+    clear_on_queue(&queues[0], &target, 3, 0);
+    P(nvnQueueFinalize)(&queues[0]);
+    CHECK(P(nvnQueueInitialize)(&queues[0], &fresh), "disabled queue storage can be initialized again");
+    clear_on_queue(&queues[0], &target, -1, 2);
+    CHECK(clear_channel_matches(&target, 2), "a recreated queue starts enabled");
+    P(nvnQueueFinalize)(&queues[0]);
+    P(nvnQueueFinalize)(&queues[1]);
     mtl_pool_del(vertices); free(vertices);
     printf("queue origin: %d checks, %d failed\n",checks,fails); return fails != 0;
 } }

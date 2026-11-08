@@ -69,3 +69,5 @@ Reviewed NXNative through `d4c11e2b8472`. Adapted stale texture view invalidatio
 ## 0.3.134 / 157
 
 Reviewed NXNative through `bd979ced3ae6`. Synchronized kernel synchronization wait ownership and wake recording (`db206a46045f`), fixed-refresh fullscreen pacing (`490859ea7d6a`), caller tool path precedence (`2bd920a9ef17`), and test paths containing spaces (`12ddb1fb75f0`). Adapted shader-code address checks without GPU residency (`f25fa9562ee9`) to the existing memory pool table. The matching shader chain remains `55b6fe4e578d`.
+
+Build 159 / 构建159：检查 NX bd979ced3ae6 至 62f6a52c4fa9。适配 a00f03bb3f72 的 Mac 原始 HID 设备去重，按 I/O Registry ID 合并重复发现，保留本项目的 GameController 优先路由。独立移植 ea0c98df35e2 的每队列渲染开关状态，保留现有命令调度和计数器实现。纳入已验证的本地通用横屏键位修正，保留 NX 默认位置并仅在实际遮挡时避让。配套着色器链继续使用 55b6fe4e578d。
