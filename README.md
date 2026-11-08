@@ -1,6 +1,6 @@
 # ACNH Mobile
 
-**0.3.136 · build 159 — official Metal 4 runtime, iOS/iPadOS 26+.**
+**0.3.137 · build 160 — official Metal 4 runtime, iOS/iPadOS 26+.**
 
 Devices with hardware BC texture support use the existing GPU path. The CPU fallback for devices without hardware BC support still needs A15/A16 device testing.
 
@@ -9,7 +9,7 @@ iPad portrait mode splits the game and companion into equal halves. Original pre
 
 Optional iCloud Drive save sharing is available in the iPhone and Mac launchers; choose the same folder on both devices. Replaced saves are backed up locally.
 
-Experimental same-Wi-Fi local networking is included as an ACNH-only patch. LiveContainer + SideStore users should install the attached LAN host and allow Local Network access. The same patched host can be reused. [Release notes](docs/RELEASE-v0.3.136.en.md).
+Experimental same-Wi-Fi local networking is included as an ACNH-only patch. LiveContainer + SideStore users should install the attached LAN host and allow Local Network access. The same patched host can be reused. [Release notes](docs/RELEASE-v0.3.137.en.md).
 A native compatibility runtime for Animal Crossing: New Horizons 3.0.3. The runtime and shader translation sources are based on [NXNative](https://github.com/seedds/nxnative) commit `742c9fb83c3719674720ede99da6c1bc997904da`.
 
 This edition uses the official Metal 4 replay path and matching shader chain. It retains ACNH's icon touch controls, tool wheel, physical controllers, R/field-triggered Chinese text input, direct external `.data` access, transactional saves, amiibo file import, Photos export and bounded haptics. Custom touch layouts can be edited from startup settings; there is no added in-game typing toolbar.

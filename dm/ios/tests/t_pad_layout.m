@@ -3,6 +3,12 @@
 int main(void){@autoreleasepool{
  CGRect b=CGRectMake(0,0,932,430),safe=CGRectMake(59,0,814,409);CGPoint original=CGPointMake(110,327);
  assert(CGPointEqualToPoint(pad_point(@{},@"stick",original,b,safe,77),original));
+ assert(!pad_has_position(nil));
+ assert(!pad_has_position(@{@"scale":@1.1}));
+ assert(!pad_has_position(@{@"x":@0.2,@"y":@(NAN),@"dx":@0,@"dy":@0}));
+ assert(pad_has_position(@{@"x":@0,@"y":@0}));
+ assert(pad_has_position(@{@"dx":@0.2,@"scale":@1.1}));
+ assert(pad_has_position(@{@"dy":@(-0.1)}));
  NSMutableDictionary *draft=[@{} mutableCopy];draft[@"stick"]=@{@"dx":@.2,@"dy":@-.1,@"scale":@1.5};
  assert(pad_scale(draft,@"stick")==1.5);CGPoint p=pad_point(draft,@"stick",original,b,safe,77);assert(fabs(p.x-296.4)<.001 && fabs(p.y-284)<.001);
  assert(pad_scale(draft,@"button.0")==1);assert(CGPointEqualToPoint(pad_point(draft,@"button.0",original,b,safe,77),original));

@@ -205,7 +205,16 @@ static CGPoint side(CGRect s, int right, CGFloat dx, CGFloat y) { return CGPoint
     switch (b) { case B_A: return CGPointMake(c.x + g, c.y); case B_B: return CGPointMake(c.x, c.y + g); case B_X: return CGPointMake(c.x, c.y - g); default: return CGPointMake(c.x - g, c.y); } }
 - (CGFloat)faceRFor:(int)b{return self.faceR*acnh_pad_scale(@"generic",[NSString stringWithFormat:@"button.%d",b]);}
 - (CGPoint)facePos:(int)b{return acnh_pad_point(@"generic",[NSString stringWithFormat:@"button.%d",b],[self defaultFacePos:b],self,[self faceRFor:b]);}
-- (CGPoint)stickHome { CGRect s = self.corner; return acnh_pad_point(@"generic",@"stick",side(s, 0, K_STICK_X * self.u, CGRectGetMaxY(s) - K_PAD_Y * self.u),self,[self stickR:0]); }   // the left stick's ring centre
+- (CGPoint)stickHome {
+    CGRect s = self.corner, avoid = CGRectNull;
+    CGFloat u = self.u;
+    if (_full && acnh_has_hinge(self) && !acnh_pad_custom(@"generic") && acnh_landscape_pad_overlay(self)) {
+        CGPoint dpad = self.dpadCenter;
+        CGFloat radius = self.dpadR + 4 * u;
+        avoid = CGRectMake(dpad.x - radius, dpad.y - radius, 2 * radius, 2 * radius);
+    }
+    return acnh_pad_point_avoiding(@"generic", @"stick", side(s, 0, K_STICK_X * u, CGRectGetMaxY(s) - K_PAD_Y * u), self, [self stickR:0], avoid);
+}
 - (CGPoint)stickCentre:(int)i { return i ? _rCentre : self.stickHome; }
 - (CGFloat)stickR:(int)i { return (i ? K_RSTICK_R : K_STICK_R) * self.u * (i?1:acnh_pad_scale(@"generic",@"stick")); }
 - (BOOL)inRightArea:(CGPoint)p { CGRect b = self.bounds; return p.x >= CGRectGetMaxX(b) - b.size.width * K_RSWIPE; }

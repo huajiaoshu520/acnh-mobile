@@ -63,17 +63,28 @@ static inline CGPoint acnh_clamp_control(CGPoint p,CGRect safe,CGFloat r) {
 static inline int acnh_control_blocked(CGPoint p,CGFloat r,const CGRect *regions,int count) {
  for(int i=0;i<count;i++)if(CGRectContainsPoint(CGRectInset(regions[i],-r-3,-r-3),p))return 1;return 0;
 }
+static inline int acnh_circle_control_blocked(CGPoint p,CGFloat r,const CGRect *regions,int count) {
+ CGFloat clearance=r+3;
+ for(int i=0;i<count;i++){
+  CGRect region=regions[i];
+  CGFloat dx=p.x-fmax(CGRectGetMinX(region),fmin(CGRectGetMaxX(region),p.x));
+  CGFloat dy=p.y-fmax(CGRectGetMinY(region),fmin(CGRectGetMaxY(region),p.y));
+  if(dx*dx+dy*dy<clearance*clearance)return 1;
+ }
+ return 0;
+}
 // Move the whole circular control, not its artwork or touch region independently.
 static inline CGPoint acnh_clear_control(CGPoint p,CGRect safe,CGFloat r,const CGRect *regions,int count,int keepUnblocked) {
- // NX's landscape controls can extend into the safe-area inset.
- if(keepUnblocked&&!acnh_control_blocked(p,r,regions,count))return p;
- p=acnh_clamp_control(p,safe,r);if(!acnh_control_blocked(p,r,regions,count))return p;
+ // A landscape circle may occupy the corner of a rectangle expanded by its radius.
+ int (*blocked)(CGPoint,CGFloat,const CGRect *,int)=keepUnblocked?acnh_circle_control_blocked:acnh_control_blocked;
+ if(keepUnblocked&&!blocked(p,r,regions,count))return p;
+ p=acnh_clamp_control(p,safe,r);if(!blocked(p,r,regions,count))return p;
  CGPoint best=p;CGFloat cost=INFINITY;
  for(int i=0;i<count;i++){
   CGRect b=CGRectInset(regions[i],-r-4,-r-4);
   CGPoint candidates[]={{CGRectGetMinX(b),p.y},{CGRectGetMaxX(b),p.y},{p.x,CGRectGetMinY(b)},{p.x,CGRectGetMaxY(b)}};
   for(int j=0;j<4;j++){
-   CGPoint q=acnh_clamp_control(candidates[j],safe,r);if(acnh_control_blocked(q,r,regions,count))continue;
+   CGPoint q=acnh_clamp_control(candidates[j],safe,r);if(blocked(q,r,regions,count))continue;
    CGFloat d=(q.x-p.x)*(q.x-p.x)+(q.y-p.y)*(q.y-p.y);if(d<cost){best=q;cost=d;}
   }
  }
