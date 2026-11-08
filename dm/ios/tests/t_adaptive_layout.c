@@ -113,5 +113,10 @@ int main(void){
  assert(acnh_split_portrait_mode(ACNH_DISPLAY_CROP,-1)==ACNH_DISPLAY_ORIGINAL);
  assert(acnh_split_portrait_mode(ACNH_DISPLAY_ORIGINAL,ACNH_DISPLAY_AUTO)==ACNH_DISPLAY_AUTO);
  assert(acnh_split_portrait_mode(ACNH_DISPLAY_AUTO,ACNH_DISPLAY_ORIGINAL)==ACNH_DISPLAY_ORIGINAL);
- puts("adaptive layout: 652 fit cases, iPad pixel-aligned split and picture choices, lower control body and reserved-region checks passed");
+ // Figure 2 is a 2622x1206 iPhone landscape screenshot at 3x.
+ CGRect phoneFPS=acnh_landscape_fps_frame(CGRectMake(62,0,750,381),402);
+ assert(CGRectEqualToRect(phoneFPS,CGRectMake(183,9,64,22)));
+ assert(CGRectGetMidX(phoneFPS)==215);
+ assert(CGRectEqualToRect(acnh_landscape_fps_frame(CGRectMake(14,24,996,720),768),CGRectMake(183,41,64,22)));
+ puts("adaptive layout: landscape FPS anchor, 652 fit cases, iPad pixel-aligned split and picture choices, lower control body and reserved-region checks passed");
 }

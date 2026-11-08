@@ -14,6 +14,8 @@ CGRect acnh_game_frame(UIView *view);
 CGRect acnh_pad_frame(UIView *view);
 BOOL acnh_tabletop_active(UIView *view);
 BOOL acnh_landscape_pad_overlay(UIView *view);
+void acnh_set_pad_fps_overlay(UIView *pad, UIView *overlay);
+void acnh_layout_pad_fps_overlay(UIView *pad);
 CGPoint acnh_control_point(UIView *view,CGPoint point,CGFloat radius,BOOL keepOverlayDefault,CGRect peer);
 CGFloat acnh_view_display_scale(UIView *view);
 

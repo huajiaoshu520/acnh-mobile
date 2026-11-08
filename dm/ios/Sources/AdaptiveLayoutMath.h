@@ -9,6 +9,12 @@ static inline CGRect acnh_fit_game(CGRect b) {
  if(w/h>16.0/9.0)w=h*16.0/9.0;else h=w*9.0/16.0;
  return CGRectMake(b.origin.x+floor((b.size.width-w)/2),b.origin.y+floor((b.size.height-h)/2),w,h);
 }
+// NX's landscape FPS slot, to the right of the generic L3 position.
+static inline CGRect acnh_landscape_fps_frame(CGRect safe, CGFloat padHeight) {
+ CGFloat scale=fmin(padHeight/430.0,1.3);
+ return CGRectMake(floor(CGRectGetMinX(safe)+130*scale),
+                   floor(CGRectGetMinY(safe)+22*scale-11),64,22);
+}
 enum { ACNH_DISPLAY_AUTO, ACNH_DISPLAY_ORIGINAL, ACNH_DISPLAY_STRETCH, ACNH_DISPLAY_CROP };
 static inline int acnh_display_mode_value(const char *value) {
  if(!value)return ACNH_DISPLAY_AUTO;

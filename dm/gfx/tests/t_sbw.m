@@ -8,6 +8,33 @@ void svc_thread_dump(void) {}
 uint64_t now_ns(void) { return bp_now(); }
 static int checks, failed;
 #define CHECK(label,c) do {checks++;if(!(c)){failed++;fprintf(stderr,"FAIL: %s\n",label);}}while(0)
+static void pending_timestamps(uint64_t fence) {
+    _Alignas(16) uint64_t records[4] = {11, 0, 9, 0};
+    uint64_t addr = (uint64_t)records, x, y;
+    pend_reset();
+    rc_note(addr, 1);
+    sbw_note(addr, 16, SBW_REPORT);
+    gw_commit(fence);
+    rc_commit(fence, g_done);
+    g_rc_npend = 0;
+    pend_reset();
+    CHECK("unfinished timestamp contributes zero across submissions", rc_compare(addr, &x, &y) && x == 0 && y == 9);
+
+    pend_add(addr + 16, 8, 3);
+    CHECK("a current write to the reference prevents forwarding", !rc_compare(addr, &x, &y));
+    gw_commit(fence + 1);
+    pend_reset();
+    CHECK("a running GPU write to the reference prevents forwarding", !rc_compare(addr, &x, &y));
+    rc_note(addr, 1);
+    CHECK("a same-submit timestamp keeps the existing comparison", rc_compare(addr, &x, &y) && x == 0 && y == 9);
+    g_rc_npend = 0;
+
+    records[0] = 6;
+    atomic_store(&g_done, fence + 1);
+    rc_commit(fence + 2, g_done);
+    CHECK("a completed timestamp lets the later CPU value through", rc_compare(addr, &x, &y) && x == 6 && y == 9);
+}
+
 int main(void){@autoreleasepool{
     id<MTLDevice> dev=MTLCreateSystemDefaultDevice();
     id<MTLBuffer> pool=[dev newBufferWithLength:0xa04000 options:MTLResourceStorageModeShared];   // BotW's particle pool: 10 MB at 0x70c5d50000
@@ -58,5 +85,7 @@ int main(void){@autoreleasepool{
     CHECK("more timestamp reports than the first table held",rc_value((uint64_t)&big+0x1000,&x)&&x==0);
     g_rc_npend=0;}
     pend_reset();
+    atomic_store(&g_done, done + 2000);
+    pending_timestamps(done + 2001);
     printf("t_sbw: %d checks, %d failed\n",checks,failed);return failed!=0;
 }}

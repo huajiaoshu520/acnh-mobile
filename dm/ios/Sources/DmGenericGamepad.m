@@ -405,6 +405,7 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
     _swapLabel.contentsScale=acnh_view_display_scale(self);
     CGFloat u = self.u;
     [CATransaction begin]; [CATransaction setDisableActions:YES];
+    acnh_layout_pad_fps_overlay(self);
     _controls.frame = self.layer.bounds;
     for (int b = B_A; b <= B_Y; b++) { CGPoint c = [self facePos:b]; setPath(_key[b], circlePath(c, [self faceRFor:b])); placeLabel(_label[b], c, 20 * u); }
     for (int i = 0; i < (int)(sizeof k_btns / sizeof *k_btns); i++) { int b = k_btns[i];

@@ -3,7 +3,7 @@
 #import <objc/runtime.h>
 #include <stdlib.h>
 #include "companion_layout.h"
-static char hingeKey,observerKey,partialKey;
+static char hingeKey,observerKey,partialKey,padFPSOverlayKey;
 BOOL acnh_has_hinge(UIView *view) {
  return [objc_getAssociatedObject(view.window.windowScene,&hingeKey) boolValue];
 }
@@ -123,6 +123,17 @@ BOOL acnh_landscape_pad_overlay(UIView *view) {
  UIView *parent=view.superview;
  return parent&&parent.bounds.size.width>parent.bounds.size.height&&
         view.bounds.size.width>view.bounds.size.height&&!acnh_tabletop_active(parent);
+}
+void acnh_set_pad_fps_overlay(UIView *pad, UIView *overlay) {
+ if(pad)objc_setAssociatedObject(pad,&padFPSOverlayKey,overlay,OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+void acnh_layout_pad_fps_overlay(UIView *pad) {
+ UIView *overlay=objc_getAssociatedObject(pad,&padFPSOverlayKey);
+ UIView *parent=overlay.superview;
+ if(!parent)return;
+ CGRect safe=UIEdgeInsetsInsetRect(pad.bounds,pad.safeAreaInsets);
+ CGRect frame=acnh_landscape_fps_frame(safe,pad.bounds.size.height);
+ overlay.frame=[pad convertRect:frame toView:parent];
 }
 CGPoint acnh_control_point(UIView *view,CGPoint point,CGFloat radius,BOOL keepOverlayDefault,CGRect peer) {
  BOOL hinge=acnh_has_hinge(view);
