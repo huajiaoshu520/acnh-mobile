@@ -39,10 +39,12 @@ CGFloat acnh_pad_scale(NSString *base,NSString *key){return pad_scale(values(bas
 CGPoint acnh_pad_point(NSString *base,NSString *key,CGPoint p,UIView *v,CGFloat margin){
  CGRect safe=UIEdgeInsetsInsetRect(v.bounds,v.safeAreaInsets);
  BOOL portrait=acnh_companion_controls_active(v);
+ NSDictionary *layout=values(base);
  if(portrait)margin=MAX(14,margin);
- p=pad_point(values(base),key,p,v.bounds,safe,margin);
+ p=pad_point(layout,key,p,v.bounds,safe,margin);
  if(portrait)p=pad_clamp_center(p,safe,margin);
- return acnh_control_point(v,p,margin);
+ BOOL keepOverlayDefault=!portrait&&[base isEqualToString:@"generic"]&&!pad_record(layout,key);
+ return acnh_control_point(v,p,margin,keepOverlayDefault);
 }
 NSDictionary *acnh_pad_control(NSString *key,NSString *name,CGPoint p,CGFloat r){return @{ @"key":key,@"name":name,@"x":@(p.x),@"y":@(p.y),@"r":@(r)};}
 static NSString *L(NSString *en,NSString *zh){return [NSLocale.preferredLanguages.firstObject hasPrefix:@"zh"]?zh:en;}

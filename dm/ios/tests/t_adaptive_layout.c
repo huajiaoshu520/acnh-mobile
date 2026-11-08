@@ -24,11 +24,26 @@ int main(void){
  assert(fabs(acnh_inset_control_x(.904,1)-.879)<1e-9);
  assert(acnh_inset_control_x(.5,1)==.5);
  CGRect safe=CGRectMake(0,0,678,381.375),hole=CGRectMake(305,0,68,40);
- CGPoint center=CGPointMake(339,22),p=acnh_clear_control(center,safe,20,&hole,1);
+ CGPoint center=CGPointMake(339,22),p=acnh_clear_control(center,safe,20,&hole,1,0);
  assert(!acnh_control_blocked(p,20,&hole,1));assert(CGRectContainsPoint(safe,p));
  assert(hypot(p.x-center.x,p.y-center.y)>0);
- p=acnh_clear_control(CGPointMake(-99,999),safe,36,NULL,0);
+ p=acnh_clear_control(CGPointMake(-99,999),safe,36,NULL,0,0);
  assert(p.x>=39&&p.y<=CGRectGetMaxY(safe)-39);
+ // Stock NX landscape extends into the side inset. On a hinge-capable
+ // device this must not shift the stick, A, or the +/- keys.
+ CGRect landscapeSafe=CGRectMake(66,0,804,409);
+ CGPoint stock[]={CGPointMake(114,327),CGPointMake(870,327),
+                  CGPointMake(416,22),CGPointMake(520,22)};
+ CGFloat radii[]={77,27,25,25};
+ CGRect camera=CGRectMake(0,185,40,60);
+ for(unsigned i=0;i<sizeof stock/sizeof *stock;i++){
+  assert(CGPointEqualToPoint(acnh_clear_control(stock[i],landscapeSafe,radii[i],NULL,0,1),stock[i]));
+  assert(CGPointEqualToPoint(acnh_clear_control(stock[i],landscapeSafe,radii[i],&camera,1,1),stock[i]));
+  assert(!CGPointEqualToPoint(acnh_clear_control(stock[i],landscapeSafe,radii[i],NULL,0,0),stock[i]));
+ }
+ CGRect overlapping=CGRectMake(40,300,38,60);
+ p=acnh_clear_control(stock[0],landscapeSafe,radii[0],&overlapping,1,1);
+ assert(!CGPointEqualToPoint(p,stock[0])&&!acnh_control_blocked(p,radii[0],&overlapping,1));
  CGRect u,l,s=CGRectMake(20,30,900,1250),d=CGRectMake(0,640,942,30);
  assert(acnh_tabletop_regions(s,&d,1,&u,&l));
  assert(CGRectGetMaxY(u)==640&&CGRectGetMinY(l)==670);

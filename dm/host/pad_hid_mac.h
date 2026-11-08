@@ -36,10 +36,22 @@ static void hidpad_value(void *ctx, IOReturn result, void *sender, IOHIDValueRef
     }
     hidpad_read(d);
 }
+// Matching dictionaries can report the same registry entry with different device references.
+static uint64_t hidpad_entry(IOHIDDeviceRef hid) {
+    uint64_t id = 0;
+    IORegistryEntryGetRegistryEntryID(IOHIDDeviceGetService(hid), &id);
+    return id;
+}
+static int hidpad_known(IOHIDDeviceRef hid) {
+    uint64_t entry = hidpad_entry(hid);
+    for (const hid_pad *d = g_hidpads; d; d = d->next)
+        if (d->hid == hid || (entry && hidpad_entry(d->hid) == entry)) return 1;
+    return 0;
+}
 static void hidpad_found(void *ctx, IOReturn result, void *sender, IOHIDDeviceRef hid) {
     (void)ctx; (void)sender;
     if (result != kIOReturnSuccess || IOHIDDeviceGetProperty(hid, CFSTR(kIOHIDGCSyntheticDeviceKey)) == kCFBooleanTrue) return;
-    for (hid_pad *d = g_hidpads; d; d = d->next) if (d->hid == hid) return;
+    if (hidpad_known(hid)) return;
     if ([GCController supportsHIDDevice:hid]) return;   // front_mac.m reads it through its GCController (once per device: the call is not cheap)
     NSNumber *vendor = (__bridge NSNumber *)IOHIDDeviceGetProperty(hid, CFSTR(kIOHIDVendorIDKey)), *product = (__bridge NSNumber *)IOHIDDeviceGetProperty(hid, CFSTR(kIOHIDProductIDKey));
     int vid = vendor.intValue, pid = product.intValue;

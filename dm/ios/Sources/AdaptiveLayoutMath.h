@@ -64,7 +64,9 @@ static inline int acnh_control_blocked(CGPoint p,CGFloat r,const CGRect *regions
  for(int i=0;i<count;i++)if(CGRectContainsPoint(CGRectInset(regions[i],-r-3,-r-3),p))return 1;return 0;
 }
 // Move the whole circular control, not its artwork or touch region independently.
-static inline CGPoint acnh_clear_control(CGPoint p,CGRect safe,CGFloat r,const CGRect *regions,int count) {
+static inline CGPoint acnh_clear_control(CGPoint p,CGRect safe,CGFloat r,const CGRect *regions,int count,int keepUnblocked) {
+ // NX's landscape controls can extend into the safe-area inset.
+ if(keepUnblocked&&!acnh_control_blocked(p,r,regions,count))return p;
  p=acnh_clamp_control(p,safe,r);if(!acnh_control_blocked(p,r,regions,count))return p;
  CGPoint best=p;CGFloat cost=INFINITY;
  for(int i=0;i<count;i++){
