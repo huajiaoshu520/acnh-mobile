@@ -4,8 +4,9 @@
 // whole but syncs a folder file by file, and a save that is half one device's and half the other's is worse than either.
 // When: the cloud's copy comes in at the game's first save mount (hle_fs.c, before the work directory is cloned from the committed save); the committed save goes out a few
 // seconds after a Commit, on a thread of its own (the game never waits), when the iPhone app goes to the background, and from the Mac launcher once the host has exited.
-// Which way: <DM_SAVE>.sync keeps the hash of the save last known to be the same here and in the cloud. Only the cloud's changed: it comes in; only this one changed: it goes out;
-// both changed (played on both without syncing in between, or the first sync of a device that has a save of its own): the newer one wins and the other is kept.
+// Which way: <DM_SAVE>.sync keeps the hash of the cloud save last synced or chosen against at mount. Only the cloud's changed: it comes in; only this one changed: it goes out;
+// both changed (played on both without syncing in between, or the first sync of a device that has a save of its own): the newer one wins at startup and the other is kept.
+// The sender will replace an absent or damaged cloud save, or the cloud hash recorded at the last sync or mount. An unexpected cloud save waits for the next start.
 // Every save this replaces, here or in the cloud, is kept first in <DM_SAVE>-backups/<date> <side>; the newest 10 of each side stay.
 #pragma once
 #include <stdint.h>

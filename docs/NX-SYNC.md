@@ -83,3 +83,7 @@ Adapted the render archive changes from `eed7c4295853`. Archive capture rotates 
 Ported the unfinished timestamp report behavior from `ea0c98df35e2` for conditional draws. An earlier timestamp can contribute its known zero counter until its submission completes, provided the pending writes and mappings allow the comparison. Other conditional counters and ambiguous writes use the existing conservative replay path.
 
 The full upstream queue migration depends on a newer command capture and resource ownership model. The runtime has no texture handle-table write bitmap corresponding to `555122a90692` or compute pipeline archive path corresponding to the compute part of `eed7c4295853`.
+
+## 0.3.141 / 164
+
+Reviewed NXNative through `7f50222003e4`. Ported the guarded cloud-save upload from `b62b1c54d04e` while preserving automatic startup conflict resolution. Synchronized effective display-mode present interval queries (`028a26319eae`), clock-wait prediction (`8bdfcb73978b`), compute texture-view preparation before encoding (`7b6506dd907d`), scalar extended-multiply translation (`37f076a52168`), and the generic Unreal console-variable scanner improvements in `8fd4b7240d13`. The matching Mac and iOS shader chain is `b4137dff9bd5`.

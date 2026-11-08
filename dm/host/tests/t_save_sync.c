@@ -12,6 +12,8 @@
 //   (8) the game's own folder (<folder>/<title ID>) chosen as the folder
 //   (9) a new backup removes the oldest of its side beyond 10, and leaves the other side's and the player's own folders
 //   (10) the launcher's DM_SAVE with a trailing slash: the same <save>.sync as the host's
+//   (11) the cloud cannot be read at the start: a new cloud save is preserved by the sender and Mac launcher, including a device's first sync
+//   (12) a damaged cloud file is kept before the local save replaces it
 #include "../hle_fs.c"
 #include <ctype.h>
 #include <sys/wait.h>
@@ -57,19 +59,28 @@ static Result write_save(const char *path, const char *s) {           // create 
 }
 
 // One start of the game on a device: the save mount (the cloud's save comes in), then, with a file, the game writing it and committing, then a flush (the iPhone app
-// going to the background). cloud NULL: sync off. Returns the child's failed steps
-static int session(const char *save, const char *cloud, const char *file, const char *value) {
+// going to the background). cloud NULL: sync off; late_cloud: a file that becomes readable after the mount.
+enum { NOT_SENT = 64 };
+static int run_session(const char *save, const char *cloud, const char *file, const char *value, const char *late_cloud) {
     fflush(stdout); fflush(stderr);
     pid_t p = fork();
     if (!p) {
         setenv("DM_SAVE", save, 1);
         if (cloud) setenv("DM_SAVE_SYNC", cloud, 1); else unsetenv("DM_SAVE_SYNC");
+        if (late_cloud && chmod(late_cloud, 0)) _exit(98);
         int bad = h_fs_MountSave("save", NULL) != RES_OK;
+        if (late_cloud && chmod(late_cloud, 0644)) _exit(98);
         if (file) { char gp[256]; snprintf(gp, sizeof gp, "save:/%s", file); bad += write_save(gp, value) != RES_OK; bad += h_fs_Commit("save") != RES_OK; }
-        if (cloud) bad += save_sync_flush(10000) != 1;
+        if (cloud && save_sync_flush(10000) != 1) bad += NOT_SENT;
         fflush(stdout); fflush(stderr); _exit(bad);
     }
-    int st; waitpid(p, &st, 0); return WIFEXITED(st) ? WEXITSTATUS(st) : 99;
+    int st; waitpid(p, &st, 0);
+    if (late_cloud) chmod(late_cloud, 0644);
+    return WIFEXITED(st) ? WEXITSTATUS(st) : 99;
+}
+
+static int session(const char *save, const char *cloud, const char *file, const char *value) {
+    return run_session(save, cloud, file, value, NULL);
 }
 
 int main(void) {
@@ -216,6 +227,34 @@ int main(void) {
     CHECK(save_sync_after_exit(u, DM_GAME_ID) == 1 && cloud_has(cf, root, "game.dat", "v10"), "it goes out");
     snprintf(p, sizeof p, "%s/.sync", C); CHECK(!exists(p), "and the sync state is beside the save, not inside it");
     unsetenv("DM_SAVE_SYNC");
+
+
+    printf("(11) the cloud cannot be read at the start\n");
+    CHECK(session(B, cloud, "game.dat", "remote") == 0 && cloud_has(cf, root, "game.dat", "remote"), "the iPhone sends an update to the cloud");
+    snprintf(p, sizeof p, "%s/game.dat", C);
+    CHECK(run_session(C, own, "game.dat", "late-local", cf) == NOT_SENT && same(p, "late-local") && cloud_has(cf, root, "game.dat", "remote"),
+          "the Mac keeps its new local save and leaves the unseen cloud update in place");
+    setenv("DM_SAVE_SYNC", own, 1);
+    CHECK(save_sync_after_exit(C, DM_GAME_ID) == 0 && cloud_has(cf, root, "game.dat", "remote"), "the Mac launcher also leaves the unseen cloud update in place after exit");
+    unsetenv("DM_SAVE_SYNC");
+
+    char fresh[1200]; snprintf(fresh, sizeof fresh, "%s/fresh/save", root); mkd(fresh);
+    snprintf(q, sizeof q, "%s/game.dat", fresh);
+    CHECK(run_session(fresh, own, "game.dat", "new-device", cf) == NOT_SENT && same(q, "new-device") && cloud_has(cf, root, "game.dat", "remote"),
+          "a first-time device never replaces existing cloud progress before its first comparison");
+
+    set_mtime(p, time(NULL) + 100);
+    CHECK(session(C, own, NULL, NULL) == 0 && same(p, "late-local") && cloud_has(cf, root, "game.dat", "late-local"),
+          "the next startup compares both saves, then sends the newer local copy");
+    backup_of(C, "cloud", back, sizeof back); snprintf(q, sizeof q, "%s/save/game.dat", back);
+    CHECK(*back && same(q, "remote"), "the cloud copy chosen against is backed up before sending");
+
+    printf("(12) damaged cloud file\n");
+    put(cf, "DMSYNC1\nnot a save");
+    CHECK(session(fresh, own, "game.dat", "new-valid") == 0 && cloud_has(cf, root, "game.dat", "new-valid"),
+          "the local save replaces an invalid cloud file");
+    backup_of(fresh, "cloud", back, sizeof back); snprintf(q, sizeof q, "%s/save.dmsync", back);
+    CHECK(*back && same(q, "DMSYNC1\nnot a save"), "the damaged cloud file is kept intact");
 
     printf("== save sync: %d checks, %d failed ==\n", checks, fails);
     if (!fails) { char c[1200]; snprintf(c, sizeof c, "rm -rf '%s'", root); system(c); }
