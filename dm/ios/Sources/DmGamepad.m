@@ -269,6 +269,7 @@ static void pads_start(void);
 }
 - (void)layoutSubviews{
  [super layoutSubviews]; UIWindowScene *ws=self.window.windowScene; if(ws) atomic_store(&g_iface_orient,(int)ws.effectiveGeometry.interfaceOrientation);[CATransaction begin];[CATransaction setDisableActions:YES];
+ acnh_layout_pad_fps_overlay(self);
  for(int b=0;b<B_N;b++)if(_key[b]){
   CGPoint c=[self buttonCenter:b];CGFloat r=[self radius:b];setPath(_key[b],circlePath(c,r));
   if(b!=B_RS&&_glyph[b])positionGlyph(_glyph[b],c,r*(b==B_A?.98:1.10));

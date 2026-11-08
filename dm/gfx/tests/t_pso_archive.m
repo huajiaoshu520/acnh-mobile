@@ -94,11 +94,12 @@ static void concurrent_functions(id<MTLLibrary> library) {
 }
 @end
 // Notes whether the compaction marker exists while the serializer writes (issue #342: a flush that does not return leaves it)
-@interface MarkerSerializer : NSObject { @public id<MTL4PipelineDataSetSerializer> ser; int calls, marked; } @end
+@interface MarkerSerializer : NSObject { @public id<MTL4PipelineDataSetSerializer> ser; int calls, marked, fail; } @end
 @implementation MarkerSerializer
 - (id)forwardingTargetForSelector:(SEL)selector { return ser; }
 - (BOOL)serializeAsArchiveAndFlushToURL:(NSURL *)url error:(NSError **)error {
     calls++; marked += [[NSString stringWithContentsOfFile:arch_compact_marker() encoding:NSUTF8StringEncoding error:nil] isEqualToString:arch_compact_stamp()];
+    if (fail) { if (error) *error = [NSError errorWithDomain:@"test" code:2 userInfo:nil]; return NO; }
     return [ser serializeAsArchiveAndFlushToURL:url error:error];
 }
 @end
@@ -199,6 +200,10 @@ static void depth_only(void) {
 }
 static void concurrent_bases(int fail) {
     nvn_hm_clear(&g_pbase, hm_rel);
+    if (fail) {   // the period has captured a pipeline: a capture that fails then means its store is full
+        MTLRenderPipelineDescriptor *pd = desc(MTLPixelFormatRGBA8Unorm, 0, MTLPixelFormatRGBA8Unorm, MTLColorWriteMaskAll, 1); pd.vertexDescriptor.layouts[16].stride = 2048;
+        NSError *err = nil; EXPECT("failed capture: a capture before", 1, pso_build(pd, &err) != nil && atomic_load(&g_ep->n) > 0);
+    }
     ArchEpoch *ep = g_ep; ArchiveGateCompiler *gate = [ArchiveGateCompiler new]; gate->compiler = ep->comp; gate->fail = fail;
     gate->entered = dispatch_semaphore_create(0); gate->release = dispatch_semaphore_create(0); ep->comp = (id<MTL4Compiler>)gate;
     NSMutableArray<MTLRenderPipelineDescriptor *> *ds = [NSMutableArray array];
@@ -209,7 +214,7 @@ static void concurrent_bases(int fail) {
     dispatch_group_t group = dispatch_group_create(); __block int good = 0; NSObject *lock = [NSObject new];
     for (MTLRenderPipelineDescriptor *d in ds) dispatch_group_async(group, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         @autoreleasepool { NSError *err = nil; id ps = pso_build(d, &err);
-            @synchronized(lock) { good += fail ? !ps && [err.domain isEqualToString:@"test"] : ps != nil; }
+            @synchronized(lock) { good += ps != nil && !err; }   // a capture that fails builds the pipeline by the plain compiler all the same
         }
     });
     EXPECT("concurrent: first compiler entered", 0, dispatch_semaphore_wait(gate->entered, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)));
@@ -224,7 +229,31 @@ static void concurrent_bases(int fail) {
     if (!fail) EXPECT("concurrent: one compile per base", 2, gate->calls);
     EXPECT("concurrent: no unfinished builds", 0, g_pbase_pending.n);
     ep->comp = gate->compiler;
-    if (fail) { NSError *err = nil; EXPECT("concurrent: failed base can retry", 1, pso_build(ds[0], &err) != nil); }
+    if (!fail) return;
+    // the full period was handed over once, and the run still captures, into a fresh period
+    EXPECT("failed capture: a new period", 1, g_ep != ep);
+    EXPECT("failed capture: handed over once", 1, ep->failed);
+    EXPECT("failed capture: still capturing", 1, arch_capturing());
+    NSError *err = nil; int n0 = atomic_load(&g_ep->n); nvn_hm_clear(&g_pbase, hm_rel);
+    EXPECT("failed capture: the base captured in the new period", 1, pso_build(ds[0], &err) != nil && atomic_load(&g_ep->n) == n0 + 1);
+    // a capture that fails in a period that has captured nothing: not the store's size, so the run captures no more, and builds the pipeline all the same
+    arch_flush_wait();
+    ArchEpoch *fresh = g_ep; ArchiveGateCompiler *fg = [ArchiveGateCompiler new]; fg->compiler = fresh->comp; fg->fail = 1; fg->calls = 1; fresh->comp = (id<MTL4Compiler>)fg;
+    nvn_hm_clear(&g_pbase, hm_rel); err = nil;
+    EXPECT("failed capture in a new period: built", 1, pso_build(ds[1], &err) != nil && !err);
+    EXPECT("failed capture in a new period: no more captures", 0, arch_capturing());
+    int calls = fg->calls; nvn_hm_clear(&g_pbase, hm_rel);
+    EXPECT("no more captures: built by the plain compiler", 1, pso_build(ds[2], &err) != nil && fg->calls == calls && g_ep == fresh);
+    // a pipeline both compilers refuse fails, with the plain compiler's error
+    atomic_store(&g_arch_cap_off, 0); id<MTL4Compiler> plain = g_comp4;
+    ArchiveGateCompiler *pg = [ArchiveGateCompiler new]; pg->compiler = plain; pg->fail = 1; pg->calls = 1; g_comp4 = (id<MTL4Compiler>)pg;
+    atomic_store(&fresh->n, 1);   // as a period that holds a capture, so the failure is not taken for a broken capture
+    nvn_hm_clear(&g_pbase, hm_rel); err = nil;
+    EXPECT("both refuse: no pipeline, the error", 1, pso_build(ds[3], &err) == nil && [err.domain isEqualToString:@"test"]);
+    EXPECT("both refuse: not a failed capture", 0, fresh->failed);
+    atomic_store(&fresh->n, 0); g_comp4 = plain; fresh->comp = fg->compiler;
+    nvn_hm_clear(&g_pbase, hm_rel); err = nil;
+    EXPECT("concurrent: failed base can retry", 1, pso_build(ds[0], &err) != nil);
 }
 static void capture_preserves_foreign_folder(void) {
     arch_flush_wait();   // Finish earlier captures: the captures below go into a new flush period
@@ -342,7 +371,7 @@ int main(int argc, char **argv) { @autoreleasepool {
             EXPECT("restart: compiled bases", fresh && compacting, g_pb_built);
             dispatch_sync(g_arch_q, ^{ arch_flush(); });
             if (g_compact_files) EXPECT("restart: timed flush keeps recaptures pending", PSO_ARCH_COMPACT + 1 + fresh, g_arch_new);
-            atomic_store(&g_warm_running, 0);
+            arch_finish_prewarm();
             arch_flush_wait();
         }
         if (seed && getenv("DM_TEST_ARCHIVE_MIXED")) [arch_os_build() writeToFile:arch_compact_marker() atomically:YES encoding:NSUTF8StringEncoding error:nil];
@@ -389,7 +418,7 @@ int main(int argc, char **argv) { @autoreleasepool {
     same_pixels("layout base with only p files open", MTLPixelFormatRGBA8Unorm, 1, MTLPixelFormatRGBA16Float, MTLColorWriteMaskAll);
     EXPECT("layout base: not taken from a p file, compiled", built + 1, g_pb_built);
     EXPECT("layout base: one waits for a plain file", 1, g_arch_new_vd);
-    // compaction: with more than PSO_ARCH_COMPACT files, the bases the prewarm takes from them are captured again; after the flush that follows, one file holds them and the old ones are gone
+    // compaction: with more than PSO_ARCH_COMPACT files, the bases the prewarm takes from them are captured again; after all successful writes, the new files hold them and the old ones are gone
     {
         char cdir[] = "/tmp/t_pso_compact.XXXXXX"; if (!mkdtemp(cdir)) abort();
         NSString *saved = g_arch_dir; g_arch_dir = @(cdir); nvn_hm_clear(&g_pbase, hm_rel); g_arch4 = @[]; g_arch4p = @[];
@@ -406,6 +435,9 @@ int main(int argc, char **argv) { @autoreleasepool {
         for (NSString *n in names.reverseObjectEnumerator) { NSString *f = [@(cdir) stringByAppendingPathComponent:n]; [paths addObject:f]; [open addObject:[g_dev newArchiveWithURL:[NSURL fileURLWithPath:f] error:&err]]; }
         nvn_hm_clear(&g_pbase, hm_rel); g_arch4 = open;   // as a new start with that many files
         g_compact_enabled = 1; g_compact_files = paths; g_compacted = 0;
+        int write_fail = getenv("DM_TEST_ARCHIVE_WRITE_FAIL") != NULL;
+        int period = getenv("DM_TEST_ARCHIVE_EXACT") ? 3 : 4;
+        g_arch_period_max = period;
         uint64_t arch0 = g_pb_archived, built0 = g_pb_built;
         ArchEpoch *ep = g_ep; ArchiveGateCompiler *gate = [ArchiveGateCompiler new]; gate->compiler = ep->comp; gate->calls = 1; ep->comp = (id<MTL4Compiler>)gate;
         atomic_store(&g_warm_running, 1);
@@ -413,18 +445,32 @@ int main(int argc, char **argv) { @autoreleasepool {
         EXPECT("compaction: captures original shader functions, not archive imports", 0, gate->lookup_calls);
         ep->comp = gate->compiler;
         dispatch_sync(g_arch_q, ^{ arch_flush(); });   // the timer fires while prewarm still has other work
-        EXPECT("compaction: timed flush keeps recaptured bases pending", descs.count, g_arch_new);
-        EXPECT("compaction: timed flush adds no partial file", PSO_ARCH_COMPACT + 1, [NSFileManager.defaultManager contentsOfDirectoryAtPath:@(cdir) error:nil].count);
-        atomic_store(&g_warm_running, 0);
+        arch_flush_wait();   // the timer's flush waits for the prewarm; the full periods are written
+        EXPECT("compaction: timed flush keeps the last recaptured bases pending", descs.count % period, g_arch_new);
+        EXPECT("compaction: a file per full period", PSO_ARCH_COMPACT + 1 + descs.count / period, [NSFileManager.defaultManager contentsOfDirectoryAtPath:@(cdir) error:nil].count);
+        int kept = 0; for (NSString *f in paths) kept += [NSFileManager.defaultManager fileExistsAtPath:f];
+        EXPECT("compaction: the old files stay until its last period is written", paths.count, kept);
         EXPECT("compaction: every base from the archive", arch0 + descs.count, g_pb_archived);
         EXPECT("compaction: none compiled", built0, g_pb_built);
         EXPECT("compaction: every base captured again", descs.count, g_compacted);
-        MarkerSerializer *ms = [MarkerSerializer new]; ms->ser = g_ep->ser; g_ep->ser = (id<MTL4PipelineDataSetSerializer>)ms;   // the period being written
+        MarkerSerializer *ms = [MarkerSerializer new]; ms->ser = g_ep->ser; ms->fail = write_fail;
+        g_ep->ser = (id<MTL4PipelineDataSetSerializer>)ms;
+        arch_finish_prewarm();
         arch_flush_wait();
-        EXPECT("compaction: the marker exists while the flush writes", 1, ms->calls == 1 && ms->marked == 1);
+        if (descs.count % period) {
+            EXPECT("compaction: the marker exists while the flush writes", 1, ms->calls == 1 && ms->marked == 1);
+        } else {
+            EXPECT("compaction: exact division leaves no final write", 0, ms->calls);
+            g_ep->ser = ms->ser;
+        }
         EXPECT("compaction: the flush that returned removed the marker", 0, [NSFileManager.defaultManager fileExistsAtPath:arch_compact_marker()]);
         names = [NSFileManager.defaultManager contentsOfDirectoryAtPath:@(cdir) error:nil];
-        EXPECT("compaction: one file left", 1, names.count);
+        int remaining = 0; for (NSString *f in paths) remaining += [NSFileManager.defaultManager fileExistsAtPath:f];
+        EXPECT("compaction: old files stay after a failed write", write_fail ? paths.count : 0, remaining);
+        EXPECT("compaction: a file per successful period", write_fail ? paths.count + descs.count / period : (descs.count + period - 1) / period, names.count);
+        EXPECT("compaction: closed with no unfinished periods", 0, g_compact_periods + !g_compact_closed);
+        EXPECT("compaction: tracks failed write", write_fail, g_compact_bad);
+        g_arch_period_max = ARCH_PERIOD_MAX;
         // a marker left by a compaction that did not finish: the next start on this system build does not compact, one from another build is removed and compaction tried
         EXPECT("compaction: allowed without a marker", 1, arch_compact_allowed());
         [arch_compact_stamp() writeToFile:arch_compact_marker() atomically:YES encoding:NSUTF8StringEncoding error:nil];
@@ -437,11 +483,13 @@ int main(int argc, char **argv) { @autoreleasepool {
         EXPECT("compaction: old archive-import marker permits the new capture method", 1, arch_compact_allowed());
         EXPECT("compaction: old capture marker removed", 0, [NSFileManager.defaultManager fileExistsAtPath:arch_compact_marker()]);
         nvn_hm_clear(&g_pbase, hm_rel); g_compact_enabled = 0; g_compacted = 0;
-        g_arch4 = @[[g_dev newArchiveWithURL:[NSURL fileURLWithPath:[@(cdir) stringByAppendingPathComponent:names.firstObject]] error:&err]];
+        NSMutableArray<id<MTL4Archive>> *left = [NSMutableArray array];
+        for (NSString *n in names) [left addObject:[g_dev newArchiveWithURL:[NSURL fileURLWithPath:[@(cdir) stringByAppendingPathComponent:n]] error:&err]];
+        g_arch4 = left;
         arch0 = g_pb_archived; built0 = g_pb_built;
         for (MTLRenderPipelineDescriptor *cd in descs) pso_build(cd, &err);
-        EXPECT("compaction: the new file holds every base", arch0 + descs.count, g_pb_archived);
-        EXPECT("compaction: none compiled from the new file", built0, g_pb_built);
+        EXPECT("compaction: the new files hold every base", arch0 + descs.count, g_pb_archived);
+        EXPECT("compaction: none compiled from the new files", built0, g_pb_built);
         [NSFileManager.defaultManager removeItemAtPath:@(cdir) error:nil]; g_arch_dir = saved; g_arch4 = @[];
     }
     // a function with no Metal 4 descriptor: the MTLDevice path

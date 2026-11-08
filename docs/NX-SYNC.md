@@ -73,3 +73,13 @@ Reviewed NXNative through `bd979ced3ae6`. Synchronized kernel synchronization wa
 Build 159 / 构建159：检查 NX bd979ced3ae6 至 62f6a52c4fa9。适配 a00f03bb3f72 的 Mac 原始 HID 设备去重，按 I/O Registry ID 合并重复发现，保留本项目的 GameController 优先路由。独立移植 ea0c98df35e2 的每队列渲染开关状态，保留现有命令调度和计数器实现。纳入已验证的本地通用横屏键位修正，保留 NX 默认位置并仅在实际遮挡时避让。配套着色器链继续使用 55b6fe4e578d。
 
 Build 160 / 构建160：按 NX 通用横屏坐标修正左摇杆与方向键重叠。保留系统遮挡检测，圆形按键仅在实际碰到保留区域时避让。通用横屏中仅调整大小的自定义记录沿用默认位置，已有自定义坐标继续生效。
+
+## 0.3.138 / 161
+
+Reviewed NXNative through `1794a35a1a24`. Adapted per-component color output masks from `51ecd693b086`. Reflection carries the pixel shader's output map, and the renderer preserves attachments when a draw leaves some of their channels untouched. The paired Mac and iOS shader chain is `b4ea3adc79f2`.
+
+Adapted the render archive changes from `eed7c4295853`. Archive capture rotates in bounded batches and can fall back to the ordinary Metal compiler. Compaction keeps the previous archives until all recaptured bases are written successfully.
+
+Ported the unfinished timestamp report behavior from `ea0c98df35e2` for conditional draws. An earlier timestamp can contribute its known zero counter until its submission completes, provided the pending writes and mappings allow the comparison. Other conditional counters and ambiguous writes use the existing conservative replay path.
+
+The full upstream queue migration depends on a newer command capture and resource ownership model. The runtime has no texture handle-table write bitmap corresponding to `555122a90692` or compute pipeline archive path corresponding to the compute part of `eed7c4295853`.

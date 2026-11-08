@@ -658,6 +658,10 @@ typedef struct seg_clk seg_clk; static seg_clk *g_sclk; static void seg_clk_put(
 static int g_rc_skip;   // the active queue has a render-enable block evaluated false
 // Neither table may drop an entry: a timestamp report forgotten leaves the condition reading the 1 the CPU wrote, so the clear runs again. They held 256 reports a submission of both kinds, and Splatoon Raiders' 285 ink
 // queries a frame came first: every conditional clear after them ran, and the lit scene was wiped before the composite read it (a black screen with only the dialogue on it). Now only timestamps are kept per submission, and both tables grow
+typedef struct { uint64_t addr, fence; } rc_timestamp;
+static rc_timestamp *g_rc_flying;
+static size_t g_rc_nflying, g_rc_fcap;
+static uint64_t g_rc_uncertain_fence;
 static uint64_t *g_rc_pend; static uint32_t g_rc_npend, g_rc_pcap;   // timestamp reports replayed in this submission: their counter is 0, though memory does not show it yet
 static uint64_t *g_rc_occ; static uint32_t g_rc_ocap, g_rc_on;   // addresses ever written by a non-timestamp report (open addressing, a power of two): conditions on them keep drawing
 static int rc_occ_has(uint64_t a) { if (!g_rc_ocap) return 0; for (uint32_t i = (uint32_t)(a >> 4) & (g_rc_ocap - 1);; i = (i + 1) & (g_rc_ocap - 1)) { if (g_rc_occ[i] == a) return 1; if (!g_rc_occ[i]) return 0; } }
@@ -675,10 +679,30 @@ static void rc_note(uint64_t a, int kind) {
     if (g_rc_npend == g_rc_pcap) { uint32_t nc = g_rc_pcap ? g_rc_pcap * 2 : 256; uint64_t *t = realloc(g_rc_pend, (size_t)nc * 8); if (!t) MDIE("no memory for the timestamp report table"); g_rc_pend = t; g_rc_pcap = nc; }
     g_rc_pend[g_rc_npend++] = a;
 }
+static int rc_pending(uint64_t addr) {
+    for (uint32_t i = g_rc_npend; i-- > 0;) if (g_rc_pend[i] == addr) return 1;
+    return 0;
+}
 static int rc_value(uint64_t a, uint64_t *v) {   // 0 = unknown at encode time
     if (rc_occ_has(a)) return 0;
-    for (uint32_t i = g_rc_npend; i-- > 0;) if (g_rc_pend[i] == a) { *v = 0; return 1; }
+    if (rc_pending(a)) { *v = 0; return 1; }
     *v = *(const volatile uint64_t *)a; return 1;
+}
+static void rc_commit(uint64_t fence, uint64_t done) {
+    // Entries are ordered by their submission fence. Discard completed prefixes
+    // so a later legal CPU rewrite can be observed from guest memory.
+    size_t completed = 0;
+    while (completed < g_rc_nflying && g_rc_flying[completed].fence <= done) completed++;
+    if (completed) {
+        g_rc_nflying -= completed;
+        memmove(g_rc_flying, g_rc_flying + completed, g_rc_nflying * sizeof *g_rc_flying);
+    }
+    size_t need = g_rc_nflying + g_rc_npend;
+    if (need > g_rc_fcap) {
+        g_rc_fcap = MAX(need, g_rc_fcap ? g_rc_fcap * 2 : 256);
+        g_rc_flying = realloc_or_die(g_rc_flying, g_rc_fcap * sizeof *g_rc_flying, "the unfinished timestamp table");
+    }
+    for (uint32_t i = 0; i < g_rc_npend; i++) g_rc_flying[g_rc_nflying++] = (rc_timestamp){g_rc_pend[i], fence};
 }
 // ---------- Occlusion queries (NVN_COUNTER_TYPE_SAMPLES_PASSED) ----------
 // NVN semantics: samples passed is a cumulative counter on the queue - ResetCounter zeroes it, every draw afterwards adds to it, and ReportCounter writes out the cumulative value at that moment (+ timestamp) when the GPU completes.
@@ -1194,6 +1218,7 @@ static int ub_partial_on(void) { static int v = -1; if (v < 0) { const char *e =
 enum { GW_N = 4096, GW_PAGES = 4096 };
 typedef struct { uint64_t page, fence; } gw_ent;
 static gw_ent g_gw[GW_N];   // page ~0: two live pages met in the slot, so any page there counts as written until fence completes
+static uint64_t g_rc_write_fence[GW_N];   // same buckets as g_gw, with timestamp reports excluded
 static gw_ent g_gwx[GW_N];  // the same without the inline updates the host remembers (um_ent): what a uniform shadow cannot read from memory
 static uint64_t g_gw_all;                            // every page counts as written until this fence completes (a submission whose writes could not all be listed)
 static uint64_t g_ubp_made, g_ubp_reused, g_ubp_refused;   // partial shadows made / taken from the cache / refused (the pass ended), for the residency set line
@@ -1209,15 +1234,20 @@ static void gww_put(uint64_t lo, uint64_t hi, uint64_t fence, uint64_t done) {
     if (free_slot >= 0) { g_gww[free_slot].lo = lo; g_gww[free_slot].hi = hi; g_gww[free_slot].fence = fence; }
     else if (fence > g_gw_all) g_gw_all = fence;
 }
-static void gw_put_in(gw_ent *t, uint64_t lo, uint64_t hi, uint64_t fence, uint64_t done) {
+static inline void gw_put_in(gw_ent *t, uint64_t lo, uint64_t hi, uint64_t fence, uint64_t done, int rc_write) {
     if (hi <= lo) return;
     uint64_t p0 = lo >> 12, p1 = (hi - 1) >> 12;
     if (p1 - p0 >= GW_PAGES) { gww_put(lo, hi, fence, done); return; }
     for (uint64_t pg = p0; pg <= p1; pg++) { unsigned s = gw_slot(pg);
         t[s].page = t[s].page == pg || t[s].fence <= done ? pg : ~0ull;
-        if (fence > t[s].fence) t[s].fence = fence; }
+        if (fence > t[s].fence) t[s].fence = fence;
+        if (rc_write) g_rc_write_fence[s] = fence;
+    }
 }
-static void gw_put(uint64_t lo, uint64_t hi, uint64_t fence, uint64_t done) { gw_put_in(g_gw, lo, hi, fence, done); gw_put_in(g_gwx, lo, hi, fence, done); }
+static void gw_put(uint64_t lo, uint64_t hi, uint64_t fence, uint64_t done, int rc_write) {
+    gw_put_in(g_gw, lo, hi, fence, done, rc_write);
+    gw_put_in(g_gwx, lo, hi, fence, done, 0);
+}
 static int gw_live_in(const gw_ent *t, uint64_t lo, uint64_t hi) {
     uint64_t done = g_done;   // read without the lock as elsewhere: a stale value only refuses more
     if (g_gw_all > done) return 1;
@@ -1239,7 +1269,7 @@ static int um_on(void) { static int v = -1; if (v < 0) { const char *e = getenv(
 static void um_put(uint64_t lo, uint64_t hi, const uint8_t *src, uint64_t fence, uint64_t done) {
     if (!g_um) g_um = calloc(UM_N, sizeof *g_um);   // about 13 MB of address space; only the pages a game updates are touched
     for (uint64_t at = lo, end; at < hi; at = end) { uint64_t pg = at >> 12; end = MIN((pg + 1) << 12, hi); um_ent *m = &g_um[um_slot(pg)];
-        if (m->page != pg && m->fence > done) { gw_put_in(g_gwx, at, end, fence, done); continue; }
+        if (m->page != pg && m->fence > done) { gw_put_in(g_gwx, at, end, fence, done, 0); continue; }
         m->page = pg; m->fence = fence;   // a page taken over: all its bytes' fences have finished
         unsigned o = (unsigned)(at & 4095), n = (unsigned)(end - at);
         memcpy(&m->val[o], src + (at - lo), n); for (unsigned i = 0; i < n; i++) m->f[o + i] = fence; }
@@ -1249,11 +1279,11 @@ static void gw_commit(uint64_t fence) {
     uint64_t done = g_done;
     if ((g_pend_over || g_sbw_over) && fence > g_gw_all) g_gw_all = fence;
     for (int e = 0; e < g_npend; e++) {
-        gw_put_in(g_gw, g_pend_lo[e], g_pend_hi[e], fence, done);
+        gw_put_in(g_gw, g_pend_lo[e], g_pend_hi[e], fence, done, DM_GAME_RENDER_COND);
         if (g_pend_kind[e] == 1 && g_pend_upd[e] && um_on()) { const upd_ent *u = &g_upd[g_pend_upd[e] - 1]; um_put(g_pend_lo[e], g_pend_hi[e], (const uint8_t *)u->buf.contents + u->off + (g_pend_lo[e] - u->lo), fence, done); }
-        else gw_put_in(g_gwx, g_pend_lo[e], g_pend_hi[e], fence, done); }
-    if (g_nsbw) for (int i = 0; i < SBW_N; i++) if (g_sbwp[i].gen == g_pend_gen) gw_put(g_sbwp[i].page << 12, (g_sbwp[i].page + 1) << 12, fence, done);
-    for (int i = 0; i < g_nsbw_w; i++) gw_put(g_sbw_wlo[i], g_sbw_whi[i], fence, done);
+        else gw_put_in(g_gwx, g_pend_lo[e], g_pend_hi[e], fence, done, 0); }
+    if (g_nsbw) for (int i = 0; i < SBW_N; i++) if (g_sbwp[i].gen == g_pend_gen) gw_put(g_sbwp[i].page << 12, (g_sbwp[i].page + 1) << 12, fence, done, DM_GAME_RENDER_COND && (g_sbwp[i].src & SBW_GPU));
+    for (int i = 0; i < g_nsbw_w; i++) gw_put(g_sbw_wlo[i], g_sbw_whi[i], fence, done, DM_GAME_RENDER_COND);
 }
 // The remembered bytes of running submissions over a copy of memory (d holds [lo, hi); ready: the copy operations filling it, which must come first). Not left to the copy worker: the next commit changes these bytes
 static void um_overlay(uint64_t lo, uint64_t hi, uint8_t *d, uint64_t ready) {
@@ -1596,6 +1626,44 @@ static void post_complete(uint64_t fence, uint64_t c0, uint64_t c1) {
     }
     pthread_mutex_lock(&g_mu); if (fence > g_done) g_done = fence; pthread_cond_broadcast(&g_cv); pthread_mutex_unlock(&g_mu);
 }
+uint64_t nvn_sparse_gen(void);   // hle_nvn.c: sparse mappings can alias another guest address
+static int rc_uncertain_post(const post_op *o) {
+    // Events and mirror readbacks write guest memory outside the tracked GPU
+    // ranges. Misaligned records may also overwrite either aligned operand.
+    return o->kind == 1 || o->kind == 4 || (o->addr & 15);
+}
+static int rc_compare(uint64_t addr, uint64_t *x, uint64_t *y) {
+    uint64_t other = addr + 16;
+    uint64_t done = atomic_load_explicit(&g_done, memory_order_acquire);
+    int first = 0, second = 0;
+    for (size_t i = g_rc_nflying; i-- > 0 && g_rc_flying[i].fence > done;) {
+        first |= g_rc_flying[i].addr == addr;
+        second |= g_rc_flying[i].addr == other;
+    }
+    if (first && rc_pending(addr)) first = 0;
+    if (second && rc_pending(other)) second = 0;
+    if (!first && !second) return rc_value(addr, x) & rc_value(other, y);
+    // Forward only a timestamp with a provably untouched counter and reference.
+    // Unknown comparisons keep drawing. Guest buffer copies and query bytes on
+    // the GPU still use the existing completion path.
+    if (addr & 15 || other < addr || nvn_sparse_gen() || g_rc_uncertain_fence > done || g_gw_all > done ||
+        rc_occ_has(addr) || rc_occ_has(other) || g_sbw_over ||
+        pend_hits(addr, 8) || pend_hits(other, 8) || sbw_hits(addr, addr + 8) || sbw_hits(other, other + 8)) return 0;
+    for (int i = 0; i < g_npost; i++) if (rc_uncertain_post(&g_post[i])) return 0;
+    for (int i = 0; i < GWW_N; i++)
+        if (g_gww[i].fence > done && addr < g_gww[i].hi && g_gww[i].lo < other + 8) return 0;
+    uint64_t pages[] = {addr >> 12, other >> 12};
+    for (int i = 0; i < 2; i++) {
+        unsigned slot = gw_slot(pages[i]);
+        if ((g_gw[slot].page == pages[i] || g_gw[slot].page == ~0ull) && g_rc_write_fence[slot] > done) return 0;
+    }
+    first |= rc_pending(addr);
+    second |= rc_pending(other);
+    if ((!first && !nvn_host_readable(addr, 8)) || (!second && !nvn_host_readable(other, 8))) return 0;
+    *x = first ? 0 : *(const volatile uint64_t *)addr;
+    *y = second ? 0 : *(const volatile uint64_t *)other;
+    return 1;
+}
 static void rt_preserve_bound(void);
 uint64_t mtl_sub_commit(void) {
     lc_land();   // clears still waiting (the command list ends with them)
@@ -1608,6 +1676,10 @@ uint64_t mtl_sub_commit(void) {
     rt_preserve_bound();   // The game may reuse completed command memory; queue bindings must not point into its texture snapshots.
     uint64_t fence = ++g_fence;
     gw_commit(fence);
+    if (DM_GAME_RENDER_COND) {
+        rc_commit(fence, atomic_load_explicit(&g_done, memory_order_acquire));
+        for (int i = 0; i < g_npost; i++) if (rc_uncertain_post(&g_post[i])) { g_rc_uncertain_fence = fence; break; }
+    }
     if (g_vis_ring_i >= 0) g_vis_ring[g_vis_ring_i].fence = fence;
     // CPU-visible effects after completion: copy the op table into the callback
     int n = g_npost; post_op *ops = n ? malloc(n * sizeof *ops) : NULL; post_rec *pr = &g_postr[fence % POST_RING];
@@ -2311,7 +2383,7 @@ static id<MTLTexture> pkg_upload_(const tex_t *t, uint64_t *stamp, id<MTLTexture
 static int g_direct_upload_on = -1; static uint64_t g_direct_uploads, g_direct_dispatches;
 static int direct_upload_on(void) { if (g_direct_upload_on < 0) { const char *e=getenv("DM_NVN_DIRECT_UPLOAD"); g_direct_upload_on=!e||atoi(e); } return g_direct_upload_on; }
 int nvn_host_readable(uint64_t a, uint64_t n);   // hle_nvn.c: guest memory and sparse pools
-int nvn_sparse_pool(const void *pool); uint64_t nvn_sparse_gen(void); uint64_t nvn_sparse_copy(const void *pool, void *dst, uint64_t a, uint64_t n);
+int nvn_sparse_pool(const void *pool); uint64_t nvn_sparse_copy(const void *pool, void *dst, uint64_t a, uint64_t n);
 int nvn_sparse_since(const void *pool, uint64_t a, uint64_t n, uint64_t gen, uint64_t stamp); void nvn_sparse_protect(const void *pool, uint64_t a, uint64_t n); int nvn_sparse_mapped(const void *pool, uint64_t a, uint64_t n);
 // reuse: a texture of the same description, idle on the GPU, to upload into instead of a new one; keep: usage the texture it replaces was upgraded to (tex_upgrade), which the new one
 // is made with: a texture drawn into and re-uploaded (a CPU write into one the game renders into) was made without render-target use again and upgraded at its next attachment, a
@@ -5706,6 +5778,19 @@ static void at_bind(id<MTLCommandEncoder> en) {
 // library <key>_bl instead (dmsh_logic.py: it reads each integer output's attachment and combines the two before each return), and its draws bind the operation and the targets' channel
 // masks at fragment buffer DMSH_LOGIC_BUFFER (lo_bind). Xenoblade Chronicles 2 ORs probe indices into its RG32Uint light probe lists. Any other target keeps COPY, with a red line
 static inline int lop_on(void) { return S.color.logic_op != NVN_LOGIC_OP_COPY; }
+static uint32_t pf_chan_bits(MTLPixelFormat f) {   // the channels a colour format stores, R G B A from the low bit (a write mask's bits past them change nothing)
+    switch (f) {
+        case MTLPixelFormatA8Unorm: return 0x8;
+        case MTLPixelFormatR8Unorm: case MTLPixelFormatR8Unorm_sRGB: case MTLPixelFormatR8Snorm: case MTLPixelFormatR8Uint: case MTLPixelFormatR8Sint:
+        case MTLPixelFormatR16Unorm: case MTLPixelFormatR16Snorm: case MTLPixelFormatR16Uint: case MTLPixelFormatR16Sint: case MTLPixelFormatR16Float:
+        case MTLPixelFormatR32Uint: case MTLPixelFormatR32Sint: case MTLPixelFormatR32Float: return 0x1;
+        case MTLPixelFormatRG8Unorm: case MTLPixelFormatRG8Unorm_sRGB: case MTLPixelFormatRG8Snorm: case MTLPixelFormatRG8Uint: case MTLPixelFormatRG8Sint:
+        case MTLPixelFormatRG16Unorm: case MTLPixelFormatRG16Snorm: case MTLPixelFormatRG16Uint: case MTLPixelFormatRG16Sint: case MTLPixelFormatRG16Float:
+        case MTLPixelFormatRG32Uint: case MTLPixelFormatRG32Sint: case MTLPixelFormatRG32Float: return 0x3;
+        case MTLPixelFormatB5G6R5Unorm: case MTLPixelFormatRG11B10Float: case MTLPixelFormatRGB9E5Float: case MTLPixelFormatBGR10_XR: case MTLPixelFormatBGR10_XR_sRGB: return 0x7;
+        default: return 0xf;
+    }
+}
 static uint32_t lop_key(const pso_key *k, NvShader *fs, int merged) {   // pso_key.logic, after the formats are in k
     if (!fs || !lop_on()) return 0;
     int any = 0; for (int i = 0; i < 8; i++) any |= k->cfmt[i] && (!fs->rf.color_known || (fs->rf.color_mask >> i & 1)) && (k->chmask >> (4 * i) & 0xf);
@@ -5817,6 +5902,8 @@ static MTLRenderPipelineDescriptor *pso_desc(const pso_key *k, NvShader *vs, NvS
         // while targets 1 (normals) and 3 (pre-lighting) have SRC_ALPHA blending and all channels enabled
         int unwritten = fs && fs->rf.color_known && !fsfn && l != 0xff && (!(fs->rf.color_mask >> l & 1) || (dual_fn && l == 1));
         if (unwritten) m = 0;
+        // Maxwell leaves components outside the shader's output map untouched.
+        else if (fs && fs->rf.omap_known && !fsfn && l != 0xff) m &= (fs->rf.omap >> (4 * l)) & 0xf;
         c.writeMask = (m & 1 ? MTLColorWriteMaskRed : 0) | (m & 2 ? MTLColorWriteMaskGreen : 0) | (m & 4 ? MTLColorWriteMaskBlue : 0) | (m & 8 ? MTLColorWriteMaskAlpha : 0);
         // Integer targets: no blending. Maxwell ignores the blend enable on them; Metal refuses the pipeline (an assertion even without the API validation layer): Luigi's Mansion 3's integer G-buffer (PR #105)
         if (l != 0xff && k->blend_en >> l & 1 && !unwritten && !pf_int_kind(c.pixelFormat)) {
@@ -5902,11 +5989,12 @@ static id<MTL4Compiler> g_comp4;
 static NSArray<id<MTL4Archive>> *g_arch4, *g_arch4p; static NSString *g_arch_dir; static int g_arch_seq;
 // Compaction: every start writes a file or more (each flush captures only what is new), Breath of the Wild 5-7 per start, and each file a base is not in costs a lookup about 0.06 ms.
 // With more than PSO_ARCH_COMPACT files of bases with a vertex layout, the bases the prewarm takes from them are captured again from the original shader functions, so the flush
-// after the prewarm writes them into one file; the old files are then removed (open archives stay usable for the rest of the run). Bases the
+// writes them in bounded periods. The old files are removed after every recapture is saved (open archives stay usable for the rest of the run). Bases the
 // prewarm did not take (pso_user.tsv never named them) go with them and are built again when drawn. The prebuild's files (p<seq>) are left as they are
 enum { PSO_ARCH_COMPACT = 8 };
 static int g_compact_enabled;   // immutable after pso4_init; unlike g_compact_files, never cleared by the archive queue
-static NSArray<NSString *> *g_compact_files; static _Atomic int g_compacted, g_compact_taken;   // g_compact_taken: a flush period holds the recaptured bases (arch_flush)
+static NSArray<NSString *> *g_compact_files;
+static _Atomic int g_compacted, g_compact_periods, g_compact_closed, g_compact_bad;
 // Keep the crash-recovery guard if a compaction still fails in Metal. Markers name the OS build and capture method: a marker from the old archive-import path must not
 // disable the safer original-function capture. A failed flush of this method disables compaction on this OS build until it changes; ordinary archive reads remain available.
 static NSString *arch_compact_marker(void) { return [g_arch_dir stringByAppendingPathComponent:@"compacting"]; }
@@ -5930,12 +6018,17 @@ static dispatch_queue_t g_arch_q; static _Atomic int g_arch_new, g_arch_new_vd, 
 // pipeline found in the files. The flush used to hold a lock against every such compile instead, and one compile that did not return (Super Mario Odyssey's alRenderMaterialUber
 // with the front end at -O2: 33.7 minutes until Metal gave up, GitHub issue #294) held the flush, and the flush every compile and draw that came after it. Now such a compile
 // holds back the file of its own period and nothing else
-@interface ArchEpoch : NSObject { @public id<MTL4Compiler> comp; id<MTL4PipelineDataSetSerializer> ser; dispatch_group_t busy; _Atomic int active, n, vd; int compacting; } @end
+@interface ArchEpoch : NSObject { @public id<MTL4Compiler> comp; id<MTL4PipelineDataSetSerializer> ser; dispatch_group_t busy; _Atomic int active, n, vd, failed; int compacting; } @end
 // n, vd: bases captured, those with a vertex layout
 @implementation ArchEpoch @end
 static ArchEpoch *g_ep; static os_unfair_lock g_ep_lock = OS_UNFAIR_LOCK_INIT;   // the current period
 static int g_arch_cap;   // compiles are captured (an archive folder, a serializer): immutable after pso4_init
 static dispatch_group_t g_arch_pending;   // periods handed over and not written yet
+enum { ARCH_PERIOD_MAX = 2000 };
+static int g_arch_period_max = ARCH_PERIOD_MAX;   // the tests lower this threshold
+static _Atomic int g_arch_cap_off;
+static int arch_capturing(void) { return g_arch_cap && !atomic_load(&g_arch_cap_off); }
+static void arch_flush_from(ArchEpoch *only);
 static _Atomic uint64_t g_pb_built, g_pb_archived, g_pb_reused, g_pb_spec, g_pb_legacy, g_pb_base_ns;
 // Time by kind, all threads (the 'pipelines up to frame' line): archive lookups that found the base / found none, specializations, base compiles; predictions (submit thread)
 static _Atomic uint64_t g_pt_hit_n, g_pt_hit_ns, g_pt_miss_n, g_pt_miss_ns, g_pt_spec_ns, g_pt_comp_ns, g_pt_pred_n, g_pt_pred_ns, g_pp_done_n;   // bases compiled / taken from the archive / reused, specializations, MTLDevice builds
@@ -6057,22 +6150,71 @@ static ArchEpoch *ep_new(void) {   // a flush period: its compiler and serialize
     ep->busy = dispatch_group_create();
     return ep;
 }
-static ArchEpoch *ep_enter(void) {   // the current period, joined: a flush hands it to arch_write only once every compile that joined it has left
+static ArchEpoch *ep_enter(int recapture) {   // arch_write waits for every compile that joined the period
     os_unfair_lock_lock(&g_ep_lock);
-    ArchEpoch *ep = g_ep; atomic_fetch_add(&ep->active, 1); dispatch_group_enter(ep->busy);
+    ArchEpoch *ep = nil;
+    if (!recapture || atomic_load(&g_warm_running)) {
+        if (arch_capturing()) {
+            ep = g_ep;
+            atomic_fetch_add(&ep->active, 1);
+            dispatch_group_enter(ep->busy);
+        } else if (recapture) {
+            atomic_store(&g_compact_bad, 1);
+        }
+    }
     os_unfair_lock_unlock(&g_ep_lock);
     return ep;
 }
 static void ep_leave(ArchEpoch *ep) { atomic_fetch_sub(&ep->active, 1); dispatch_group_leave(ep->busy); }
-// A compile the archive captures, in the current flush period, counted there when it built (vd: the base has a vertex layout). No task options: a captured base never imports
-// archive entries (see the compaction crash below)
-static id<MTLRenderPipelineState> arch_capture(MTL4RenderPipelineDescriptor *d, NSError **e, int vd) {
-    if (!g_arch_cap) return [g_comp4 newRenderPipelineStateWithDescriptor:d compilerTaskOptions:nil error:e];
-    ArchEpoch *ep = ep_enter();
-    id<MTLRenderPipelineState> ps = [ep->comp newRenderPipelineStateWithDescriptor:d compilerTaskOptions:nil error:e];
-    if (ps) { atomic_fetch_add(&ep->n, 1); atomic_fetch_add(&g_arch_new, 1); if (vd) { atomic_fetch_add(&ep->vd, 1); atomic_fetch_add(&g_arch_new_vd, 1); } }
+
+// Metal's serializer has a fixed-size store. If it refuses a pipeline that can still be used, rotate a period with captures or stop capturing in an empty one.
+static void arch_cap_failed(ArchEpoch *ep, NSError *error) {
+    const char *why = error ? error.localizedDescription.UTF8String : "no error given";
+    int n = atomic_load(&ep->n);
+    if (!n) {
+        if (!atomic_exchange(&g_arch_cap_off, 1))
+            MLOG("[RED] pipeline archive: capturing failed in a new period (%s): pipelines are built without the archive for this run", why);
+        return;
+    }
+    if (atomic_exchange(&ep->failed, 1)) return;
+    MLOG("[RED] pipeline archive: capturing failed after %d bases (%s): starting a new period", n, why);
+    arch_flush_from(ep);
+}
+
+// Recapture uses the original shader functions, without importing entries from old archives. The caller already has a usable base if recapture fails.
+static id<MTLRenderPipelineState> arch_capture_tracked(MTL4RenderPipelineDescriptor *d, NSError **e, int vd, int recapture, int *captured) {
+    if (captured) *captured = 0;
+    ArchEpoch *ep = ep_enter(recapture);
+    if (!ep) return recapture ? nil : [g_comp4 newRenderPipelineStateWithDescriptor:d compilerTaskOptions:nil error:e];
+
+    NSError *capture_error = nil;
+    id<MTLRenderPipelineState> ps = [ep->comp newRenderPipelineStateWithDescriptor:d compilerTaskOptions:nil error:&capture_error];
+    int full = 0;
+    if (ps) {
+        atomic_fetch_add(&g_arch_new, 1);
+        if (vd) { atomic_fetch_add(&ep->vd, 1); atomic_fetch_add(&g_arch_new_vd, 1); }
+        if (recapture) atomic_fetch_add(&g_compacted, 1);
+        full = atomic_fetch_add(&ep->n, 1) + 1 == g_arch_period_max;
+    } else if (recapture) {
+        atomic_store(&g_compact_bad, 1);
+    }
     ep_leave(ep);
+
+    if (ps) {
+        if (captured) *captured = 1;
+        if (full) arch_flush_from(ep);
+    } else if (recapture) {
+        arch_cap_failed(ep, capture_error);
+    } else {
+        NSError *plain_error = nil;
+        ps = [g_comp4 newRenderPipelineStateWithDescriptor:d compilerTaskOptions:nil error:&plain_error];
+        if (ps) arch_cap_failed(ep, capture_error);
+        else if (e) *e = plain_error ?: capture_error;
+    }
     return ps;
+}
+static id<MTLRenderPipelineState> arch_capture(MTL4RenderPipelineDescriptor *d, NSError **e, int vd, int recapture) {
+    return arch_capture_tracked(d, e, vd, recapture, NULL);
 }
 static void pso4_init(void) {
     static dispatch_once_t once;
@@ -6118,10 +6260,11 @@ static void pso4_init(void) {
     });
 }
 static int pso4_compiler(void) { pso4_init(); return g_comp4 != nil; }   // render pipelines go through the Metal 4 compiler (fn_spec)
-// Writes one flush period's captures as the next file of the archive, on g_arch_q once every compile in the period has returned; g_arch_flush_ok: the last one wrote its file
+// Writes one flush period on g_arch_q once every compile in it has returned.
 static int g_arch_flush_ok;
+static _Atomic int g_arch_write_failed;
 static void arch_compact_finish(void);
-static void arch_write(ArchEpoch *ep) {
+static void arch_write_file(ArchEpoch *ep) {
     int n = atomic_load(&ep->n), vd = atomic_load(&ep->vd);   // exact: no compile of the period is under way
     if (!n) return;
     g_arch_flush_ok = 0;
@@ -6133,33 +6276,68 @@ static void arch_write(ArchEpoch *ep) {
     if (ep->compacting) unlink(arch_compact_marker().fileSystemRepresentation);
     atomic_fetch_sub(&g_arch_new, n); atomic_fetch_sub(&g_arch_new_vd, vd);
     ok = ok && !rename(tmp.fileSystemRepresentation, path.fileSystemRepresentation);
-    if (!ok) { MLOG("[RED] pipeline archive: writing %s failed%s%s", path.UTF8String, e ? ": " : "", e ? e.localizedDescription.UTF8String : ""); unlink(tmp.fileSystemRepresentation); }
-    else {
+    if (!ok) {
+        MLOG("[RED] pipeline archive: writing %s failed%s%s", path.UTF8String, e ? ": " : "", e ? e.localizedDescription.UTF8String : "");
+        unlink(tmp.fileSystemRepresentation);
+        atomic_store(&g_arch_write_failed, 1);
+        if (ep->compacting) atomic_store(&g_compact_bad, 1);
+    } else {
         g_arch_flush_ok = 1;
         MLOG("pipeline archive: %d new pipeline bases written to %s (%.1f MB, %.0f ms)", n, path.lastPathComponent.UTF8String,
              [[NSFileManager.defaultManager attributesOfItemAtPath:path error:nil] fileSize] / 1048576.0, (bp_now() - t0) / 1e6);
     }
-    if (ep->compacting) arch_compact_finish();
 }
-// A flush: the compiles from here on capture into a new period, and the current one is written once its compiles have returned. Returns at once, on any thread; a compile that
-// does not return holds back only its own period's file
-static void arch_flush(void) {
-    // Keep all recaptured bases in one serialization, even when a prewarm lasts beyond the timer.
-    if (!g_arch_cap || (g_compact_enabled && atomic_load(&g_warm_running))) return;
-    os_unfair_lock_lock(&g_ep_lock); int any = atomic_load(&g_ep->n) || atomic_load(&g_ep->active); os_unfair_lock_unlock(&g_ep_lock);
-    if (!any) return;   // nothing captured or under way: the period goes on
-    ArchEpoch *ne = ep_new();
-    if (!ne) { MLOG("[RED] pipeline archive: Metal made no compiler for a new flush period: the captures go on into the current one"); return; }
-    os_unfair_lock_lock(&g_ep_lock);
-    ArchEpoch *old = g_ep; any = atomic_load(&old->n) || atomic_load(&old->active);   // again: another flush may just have handed it over
-    if (any) {
-        g_ep = ne;
-        old->compacting = g_compact_enabled && atomic_load(&g_compacted) && !atomic_exchange(&g_compact_taken, 1);   // this period holds the recaptured bases (see arch_compact_allowed)
+static void arch_write(ArchEpoch *ep) {
+    arch_write_file(ep);
+    if (ep->compacting) {
+        atomic_fetch_sub(&g_compact_periods, 1);
+        arch_compact_finish();
     }
+}
+// The timer waits during compacting prewarm. A period at capacity or refusing captures rotates immediately, if it is still current.
+static void arch_flush_from(ArchEpoch *only) {
+    if (!g_arch_cap || (!only && g_compact_enabled && atomic_load(&g_warm_running))) return;
+    os_unfair_lock_lock(&g_ep_lock);
+    int any = (!only || only == g_ep) && (atomic_load(&g_ep->n) || atomic_load(&g_ep->active));
     os_unfair_lock_unlock(&g_ep_lock);
     if (!any) return;
-    dispatch_group_enter(g_arch_pending);
-    dispatch_group_notify(old->busy, g_arch_q, ^{ @autoreleasepool { arch_write(old); } dispatch_group_leave(g_arch_pending); });
+
+    ArchEpoch *ne = ep_new();
+    if (!ne) {
+        atomic_store(&g_arch_write_failed, 1);
+        if (g_compact_enabled && !atomic_load(&g_compact_closed)) atomic_store(&g_compact_bad, 1);
+        if (only) atomic_store(&g_arch_cap_off, 1);
+        MLOG("[RED] pipeline archive: Metal made no compiler for a new flush period");
+        return;
+    }
+    os_unfair_lock_lock(&g_ep_lock);
+    ArchEpoch *old = g_ep;
+    any = (!only || only == old) && (atomic_load(&old->n) || atomic_load(&old->active));
+    if (any) {
+        if (g_compact_enabled && !atomic_load(&g_compact_closed)) {
+            old->compacting = 1;
+            atomic_fetch_add(&g_compact_periods, 1);
+        }
+        dispatch_group_enter(g_arch_pending);
+        g_ep = ne;
+    }
+    os_unfair_lock_unlock(&g_ep_lock);
+    if (any)
+        dispatch_group_notify(old->busy, g_arch_q, ^{ @autoreleasepool { arch_write(old); } dispatch_group_leave(g_arch_pending); });
+}
+static void arch_flush(void) { arch_flush_from(nil); }
+static void arch_finish_prewarm(void) {
+    os_unfair_lock_lock(&g_ep_lock);
+    atomic_store(&g_warm_running, 0);
+    os_unfair_lock_unlock(&g_ep_lock);
+    arch_flush();
+
+    if (!g_arch_cap || !g_compact_enabled) return;
+    // A full final period already rotated. Check for completion even when the current period is empty.
+    os_unfair_lock_lock(&g_ep_lock);
+    atomic_store(&g_compact_closed, 1);
+    dispatch_group_async(g_arch_pending, g_arch_q, ^{ @autoreleasepool { arch_compact_finish(); } });
+    os_unfair_lock_unlock(&g_ep_lock);
 }
 // A flush, then every period handed over is written (not on g_arch_q, which writes them)
 static void arch_flush_wait(void) { arch_flush(); if (g_arch_pending) dispatch_group_wait(g_arch_pending, DISPATCH_TIME_FOREVER); }
@@ -6167,11 +6345,14 @@ static void arch_note_new(void) {   // a base was compiled: flush 10 s later (on
     if (!g_arch_q || atomic_exchange(&g_arch_sched, 1)) return;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 10 * (int64_t)NSEC_PER_SEC), g_arch_q, ^{ atomic_store(&g_arch_sched, 0); arch_flush(); });
 }
-static void arch_compact_finish(void) {   // after the period that holds the recaptured bases is written (arch_write): the old files go once their bases are in the new one
-    if (!g_compact_files || !g_compacted) return;
-    if (!g_arch_flush_ok) { MLOG("[RED] pipeline archive: compaction left the old files (the flush failed)"); return; }
-    for (NSString *f in g_compact_files) unlink(f.fileSystemRepresentation);
-    MLOG("pipeline archive compacted: %lu files of bases with a vertex layout gave %d bases to the file just written and were removed", (unsigned long)g_compact_files.count, (int)g_compacted);
+static void arch_compact_finish(void) {   // g_arch_q
+    if (!atomic_load(&g_compact_closed) || atomic_load(&g_compact_periods) || !g_compact_files) return;
+    if (atomic_load(&g_compact_bad)) {
+        MLOG("[RED] pipeline archive: compaction left the old files (a write failed or a base was not captured again)");
+    } else if (atomic_load(&g_compacted)) {
+        for (NSString *f in g_compact_files) unlink(f.fileSystemRepresentation);
+        MLOG("pipeline archive compacted: %lu old files gave %d bases to the new files", (unsigned long)g_compact_files.count, (int)g_compacted);
+    }
     g_compact_files = nil;
 }
 static void pso_col4(MTL4RenderPipelineColorAttachmentDescriptor *a, MTLRenderPipelineColorAttachmentDescriptor *c) {
@@ -6289,13 +6470,13 @@ static id<MTLRenderPipelineState> pso_build_ex(MTLRenderPipelineDescriptor *d, N
         if (base && from_run && g_compact_enabled && atomic_load(&g_warm_running)) {
             // Metal can crash in materializeAirNTFromOnlineForSlice when serializing archive imports mixed with fresh bases (#342).
             // Work around that framework bug by capturing the original shader functions, without lookupArchives. The normal compiler cache still applies.
-            id<MTLRenderPipelineState> cb = arch_capture(b, nil, vd);
-            if (cb) { base = cb; g_compacted++; }
+            id<MTLRenderPipelineState> cb = arch_capture(b, nil, vd, 1);
+            if (cb) base = cb;
         }
         if (!base) {
             if (g_arch4.count + g_arch4p.count) { g_pt_miss_n++; g_pt_miss_ns += t1 - t0; }
             if (compile) {
-                NSError *be = nil; base = arch_capture(b, &be, vd); job->error = be; job->compiled = 1;
+                NSError *be = nil; base = arch_capture(b, &be, vd, 0); job->error = be; job->compiled = 1;
                 g_pt_comp_ns += bp_now() - t1;
                 if (base) { g_pb_built++; if (g_arch_cap) arch_note_new(); }
             }
@@ -6539,6 +6720,7 @@ static MTL4RenderPipelineDescriptor *pre_desc(NSString *vk, NSString *fk, int ze
         a.rgbBlendOperation = a.alphaBlendOperation = MTLBlendOperationUnspecialized; }
     return m;
 }
+static _Atomic int g_pre_uncaptured;
 static void pre_pair(NSString *vk, NSString *fk, int zero) {
     @autoreleasepool {
         if (g_pre_known.count && g_pre_known[[NSString stringWithFormat:@"%@\t%@", vk, fk]]) { g_pre_skipped++; g_pre_known_n++; return; }
@@ -6546,8 +6728,9 @@ static void pre_pair(NSString *vk, NSString *fk, int zero) {
         if (!m) { g_pre_skipped++; return; }
         for (id<MTL4Archive> a in g_arch4p) if ([a newRenderPipelineStateWithDescriptor:m error:nil]) { g_pre_archived++; return; }
         for (id<MTL4Archive> a in g_arch4) if ([a newRenderPipelineStateWithDescriptor:m error:nil]) { g_pre_archived++; return; }
-        NSError *e = nil; id ps = arch_capture(m, &e, 0);
-        if (ps) g_pre_built++;
+        NSError *e = nil; int captured = 0; id ps = arch_capture_tracked(m, &e, 0, 0, &captured);
+        if (captured) g_pre_built++;
+        else if (ps) atomic_fetch_add(&g_pre_uncaptured, 1);
         else {
             if (g_pre_failed++ < 4) MLOG("[RED] pipeline prebuild: the base of %s + %s failed: %s", vk.UTF8String, fk.UTF8String, e.localizedDescription.UTF8String);
             NSString *why = [[[e.localizedDescription ?: @"no error" componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]
@@ -6626,7 +6809,7 @@ static int pso_prebuild(int threads, int wait, dispatch_qos_class_t qos) {
         if (!rest.length) { g_pre_running = 0; return -1; }
         txt = rest; want = pre_stamp(rest, zero); pairs = pre_parse(rest); pp = rp; txt2 = nil;
     }
-    if (!g_arch_cap) { g_pre_running = 0; return -1; }
+    if (!arch_capturing()) { g_pre_running = 0; return -1; }
     NSString *stamp = [g_arch_dir stringByAppendingPathComponent:@"prebuilt.tsv"], *failp = [g_arch_dir stringByAppendingPathComponent:@"prebuild_failed.tsv"];
     int other = 0; g_pre_known = pre_fail_load(failp, want, &other); g_pre_fails = [NSMutableArray array]; g_pre_known_n = 0;
     // done, unless its failures were found on another system build: then they are tried again (the rest are taken from the archive)
@@ -6634,6 +6817,7 @@ static int pso_prebuild(int threads, int wait, dispatch_qos_class_t qos) {
     int n = (int)pairs.count; uint64_t t0 = bp_now();
     MLOG("pipeline prebuild: %d shader pairs of %s%s%s, %d workers (%s)", n, pp.UTF8String, txt2 ? " and " : "", txt2 ? pp2.UTF8String : "", threads, wait ? "tool" : prepare_on() ? "prepare step, before the first frame" : "background");
     atomic_store(&g_pre_next, 0);
+    atomic_store(&g_pre_uncaptured, 0);
     dispatch_group_t g = dispatch_group_create();
     for (int t = 0; t < threads; t++) dispatch_group_async(g, dispatch_get_global_queue(qos, 0), ^{
         for (;;) {
@@ -6654,7 +6838,13 @@ static int pso_prebuild(int threads, int wait, dispatch_qos_class_t qos) {
         if (fails.count) [[NSString stringWithFormat:@"# pipeline prebuild: pairs whose base failed to build on this system build, left to the draws until it or the stamp changes (nvn_mtl.m, pre_fail_load)\n%@%@\n",
                             pre_fail_head(want), [fails componentsJoinedByString:@"\n"]] writeToFile:failp atomically:YES encoding:NSUTF8StringEncoding error:nil];
         else unlink(failp.fileSystemRepresentation);
-        [want writeToFile:stamp atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        int uncaptured = atomic_load(&g_pre_uncaptured);
+        if (uncaptured || atomic_load(&g_arch_write_failed)) {
+            unlink(stamp.fileSystemRepresentation);
+            MLOG("pipeline prebuild: archive incomplete (%d bases built without capture); missing entries will be retried", uncaptured);
+        } else {
+            [want writeToFile:stamp atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        }
         MLOG("pipeline prebuild done: %d pairs, %d bases built, %d already archived, %d left to the draws, %d failed, %.1f s", n, (int)g_pre_built, (int)g_pre_archived, (int)g_pre_skipped, (int)g_pre_failed, (bp_now() - t0) / 1e9);
         if (fails.count) MLOG("pipeline prebuild: %lu pairs whose base failed are left to the draws (%s; %d of them failed on an earlier start of this system build, not built again); another system build tries them again",
                               (unsigned long)fails.count, failp.UTF8String, (int)g_pre_known_n);
@@ -6929,8 +7119,7 @@ static void warm_finish(void) {
     // All warm tasks have joined. WarmItems retain published shaders until the submit thread claims them.
     // Drop negative results too: demand loading keeps its existing retry behavior, independent of the warm dictionary.
     g_warm_dict = nil; g_warm_loads = nil;
-    atomic_store(&g_warm_running, 0);
-    arch_flush();   // the period of the recaptured bases (compaction finishes once it is written), after the prewarm stops recapturing them
+    arch_finish_prewarm();
     @autoreleasepool { pso_prebuild_bg(); }   // then, once, the bases every shader pair's hybrid draws need
 }
 // Wait for the background warm-up to finish (at most timeout_ms): returns how many milliseconds were actually waited, 0 if it is not running. On first install the system shader cache is fully cold; if warm-up is slower than the player entering a run,
@@ -7825,6 +8014,7 @@ static int first_draw_covers(int i, id<MTLTexture> t, NSUInteger level) {
     NvShader *vs = pr->sh[0], *fs = pr->sh[1];
     if (!vs || !fs || vs->rf.pos_attr < 0 || fs->rf.may_discard || atest_on() || lop_on() || fs->rf.writes_smask || !(fs->rf.color_mask >> i & 1)) return g_fd_why = 2, 0;   // atest_on: the alpha test may drop fragments; lop_on: the logic operation reads the target
     if (!t || t.sampleCount != 1 || t.textureType == MTLTextureType3D) return g_fd_why = 3, 0;
+    if (fs->rf.omap_known && (pf_chan_bits(t.pixelFormat) & ~(fs->rf.omap >> (4 * i)))) return g_fd_why = 4, 0;
     if ((S.color.blend_en >> i & 1) || ((S.chmask.mask >> (4 * i)) & 0xf) != 0xf || S.ms.a2c || S.poly.mode != NVN_POLYGON_MODE_FILL) return g_fd_why = 4, 0;
     if (R.rt.depth && ((S.ds.dt && S.ds.df != NVN_DEPTH_FUNC_ALWAYS) || S.ds.st)) return g_fd_why = 5, 0;
     if (n < 3 || n > 64) return g_fd_why = 6, 0;
@@ -11024,7 +11214,7 @@ void mtl_exec(const uint8_t *p) {
                 break; }
             case OP_RENDER_COND: { const p_render_cond *rc = a;   // recorded only with the profile key render_cond (hle_nvn.c)
                 if (rc->mode >= 2) { g_rc_skip = rc->mode == 3; PD("E %llu render enable %d", g_stat_pass, rc->mode == 2); }
-                else { uint64_t x = 0, y = 0; int known = rc_value(rc->addr, &x) & rc_value(rc->addr + 16, &y);
+                else { uint64_t x = 0, y = 0; int known = rc_compare(rc->addr, &x, &y);
                     g_rc_skip = known && (rc->mode ? x == y : x != y);
                     PD("E %llu conditional render %s addr=%#llx values %llu / %llu%s%s", g_stat_pass, rc->mode ? "draw if not equal" : "draw if equal", (unsigned long long)rc->addr, (unsigned long long)x, (unsigned long long)y, known ? "" : " (unknown, drawn)", g_rc_skip ? " → not drawn" : ""); }
                 break; }

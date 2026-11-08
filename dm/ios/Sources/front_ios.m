@@ -238,6 +238,7 @@ static BOOL portrait_framing_locked(void) {
     BOOL portrait=acnh_portrait_companion_active(self.view);
     self.pad.clipsToBounds=portrait;
     if(tv_active()) {
+        acnh_set_pad_fps_overlay(self.pad,nil);
         self.pad.frame=acnh_pad_frame(self.view);
         self.miniMap.hidden=YES;atomic_store(&g_minimap_enabled,0);
         self.companion.view.hidden=YES;self.portraitFramingButton.hidden=YES;dm_companion_ui_state(1,0,0);
@@ -298,10 +299,14 @@ static BOOL portrait_framing_locked(void) {
     BOOL padChanged=!CGRectEqualToRect(previous,self.pad.frame);
     if(padChanged)dm_gamepad_reset();
     if(padChanged||!CGRectEqualToRect(previousGame,self.game.frame)||!CGRectEqualToRect(previousTouch,self.game.screenTouchRect))[self.game resetScreenTouches];
+    BOOL padPlacesFPS = self.fps && acnh_landscape_pad_overlay(self.pad);
+    acnh_set_pad_fps_overlay(self.pad,padPlacesFPS ? self.fps : nil);
     [self.game setNeedsLayout];[self.pad setNeedsLayout];
-    if (self.fps) {   // the top row's free stretch: right of DmGamepad.m's L3 key (102 + 17 of its units from the safe edge), level with − / + (22 units down); u is its unit
-        CGRect s = acnh_has_hinge(self.view)?self.pad.frame:UIEdgeInsetsInsetRect(self.view.bounds,self.view.safeAreaInsets); CGFloat u = MIN((acnh_has_hinge(self.view)?s.size.height:self.view.bounds.size.height) / 430.0, 1.3);
-        self.fps.frame = portrait?CGRectMake(CGRectGetMidX(viewport)-32,CGRectGetMinY(viewport)+8,64,22):CGRectMake(floor(CGRectGetMinX(s) + 130 * u), floor(CGRectGetMinY(s) + 22 * u - 11), 64, 22);
+    if (self.fps && !padPlacesFPS) {
+        BOOL hinge=acnh_has_hinge(self.view);
+        CGRect s=hinge?self.pad.frame:UIEdgeInsetsInsetRect(self.view.bounds,self.view.safeAreaInsets);
+        self.fps.frame=portrait?CGRectMake(CGRectGetMidX(viewport)-32,CGRectGetMinY(viewport)+8,64,22)
+                               :acnh_landscape_fps_frame(s,hinge?s.size.height:self.view.bounds.size.height);
     }
 }
 - (void)viewWillTransitionToSize:(CGSize)size withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator {
